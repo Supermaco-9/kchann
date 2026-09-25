@@ -1,0 +1,2717 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Tiendas Bogotá — Gestión de Asesores</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Firebase (sincronización en la nube + autenticación real entre dispositivos) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<!-- SheetJS: exportar reportes en Excel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { font-family:'Inter',sans-serif; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    max-width: 100vw;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    background: #f1f5f9;
+    color: #0f172a;
+    position: relative;
+  }
+  #login, #loginSplash, #app {
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+  main { flex: 1 0 auto; width: 100%; max-width: 100vw; overflow-x: hidden; }
+  .screen { display: none; width: 100%; }
+  .screen.active { display: block; width: 100%; }
+  .estado-dot { width:10px;height:10px;border-radius:9999px;display:inline-block; }
+  .leaflet-popup-content-wrapper { border-radius:14px; font-family:'Inter',sans-serif; }
+  .navbtn.active { background:#fee2e2; color:#b91c1c; }
+  .navbtn.active svg { stroke:#ef4444; }
+  ::-webkit-scrollbar{width:8px;height:8px} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px}
+  .card { background:#ffffff; border:1px solid #e2e8f0; border-radius:20px; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); }
+  input,select,textarea { background:#ffffff !important; border:1px solid #e2e8f0 !important; color:#0f172a !important; border-radius:12px !important; padding:12px 14px; width:100%; font-size:14px; transition: border-color 0.2s; }
+  input:focus,select:focus,textarea:focus { outline:none; border-color:#d32f2f !important; box-shadow: 0 0 0 3px rgba(211, 47, 47, 0.1); }
+  label { font-size:11px; color:#64748b; font-weight:700; display:block; margin-bottom:6px; text-transform:uppercase; letter-spacing:.6px; }
+  .btn-primary { background:#d32f2f; color:#fff; font-weight:700; border-radius:14px; padding:14px; width:100%; transition:.2s; border:none; cursor:pointer; }
+  .btn-primary:hover { background:#b71c1c; transform: translateY(-1px); box-shadow: 0 4px 6px -1px rgba(211, 47, 47, 0.3); }
+  .chip { border:1px solid #e2e8f0; border-radius:9999px; padding:6px 14px; font-size:12px; font-weight:600; color:#64748b; background:#fff; cursor:pointer; white-space:nowrap; transition:.2s; }
+  .chip.on { background:#d32f2f; color:#fff; border-color:#d32f2f; }
+  .tbl th { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#64748b; text-align:left; padding:12px 16px; background:#f8fafc; }
+  .tbl td { padding:14px 16px; font-size:14px; border-top:1px solid #f1f5f9; color: #334155; }
+  .tl-item { position:relative; padding-left:26px; padding-bottom:20px; }
+  .tl-item::before { content:''; position:absolute; left:6px; top:18px; bottom:-2px; width:2px; background:#e2e8f0; }
+  .tl-item:last-child::before { display:none; }
+  .tl-dot { position:absolute; left:0; top:4px; width:14px; height:14px; border-radius:9999px; border:3px solid #fff; }
+
+  .hero-card { background: linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%); color: white; border-radius: 24px; padding: 24px; position: relative; overflow: hidden; }
+  .hero-card::after { content: ''; position: absolute; right: -20px; bottom: -20px; width: 120px; height: 120px; background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="white" opacity="0.1" d="M50,20 C60,20 65,30 65,40 C65,45 60,50 50,50 C40,50 35,45 35,40 C35,30 40,20 50,20 M30,30 C20,30 15,40 15,50 C15,60 25,70 35,75 L50,60 L65,75 C75,70 85,60 85,50 C85,40 80,30 70,30 M50,45 L20,85 L30,85 L50,60 L70,85 L80,85 Z"/></svg>') no-repeat; background-size: contain; transform: rotate(-15deg); }
+
+  @keyframes letterFlipOnce {
+    0%, 50%, 100% {
+      transform: rotateY(0deg) translateY(0);
+      color: #ffffff;
+      text-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+    }
+    12% {
+      transform: rotateY(360deg) translateY(-8px);
+      color: #ef4444;
+      text-shadow: 0 0 25px rgba(239, 68, 68, 0.8);
+    }
+  }
+
+  @keyframes redDotBounceAcross {
+    0%, 55%, 100% {
+      transform: translate(0, 0) scale(1);
+      box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+    }
+    34% {
+      transform: translate(-25px, -32px) scale(1.2);
+      box-shadow: 0 10px 20px rgba(239, 68, 68, 0.8);
+    }
+    38% {
+      transform: translate(-50px, 0) scale(0.95);
+      box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+    }
+    43% {
+      transform: translate(-85px, -42px) scale(1.35);
+      box-shadow: 0 15px 25px rgba(239, 68, 68, 0.9);
+    }
+    46% {
+      transform: translate(-110px, 0) scale(0.9);
+      box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+    }
+    51% {
+      transform: translate(0, -20px) scale(1.1);
+      box-shadow: 0 10px 20px rgba(239, 68, 68, 0.7);
+    }
+  }
+
+  .kchan-letter {
+    display: inline-block;
+    animation: letterFlipOnce 10s ease-in-out infinite;
+    transform-style: preserve-3d;
+  }
+  .kchan-red-dot {
+    display: inline-block;
+    animation: redDotBounceAcross 10s ease-in-out infinite;
+  }
+
+  @media print {
+    body { background: white !important; color: #0f172a !important; font-family: 'Inter', sans-serif !important; }
+    #login, nav, aside, .lg\:hidden, button, .card:has(input), #adminViewCatalog, .flex.gap-2.mb-6, .border-b { display: none !important; }
+    #scr-admin { display: block !important; position: static !important; }
+    .card { border: 1px solid #cbd5e1 !important; box-shadow: none !important; page-break-inside: avoid; margin-bottom: 20px !important; background: white !important; }
+    table { width: 100% !important; border-collapse: collapse !important; font-size: 10px !important; }
+    th, td { border: 1px solid #cbd5e1 !important; padding: 6px 8px !important; text-align: left !important; }
+    th { background: #f1f5f9 !important; color: #0f172a !important; font-weight: 800 !important; }
+    svg { max-width: 100% !important; page-break-inside: avoid; }
+    .print\:block { display: block !important; }
+    .card.overflow-x-auto { overflow: visible !important; }
+  }
+
+  /* ================== ESTILOS MAPA 3D MODERN 2026 ================== */
+  .pin-3d-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    cursor: pointer;
+  }
+  .pin-3d-wrapper:hover {
+    transform: translateY(-8px) scale(1.1);
+    z-index: 9999 !important;
+  }
+  .pin-3d-card {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    border-radius: 20px;
+    box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.9);
+    border-left: 4px solid var(--dot-color, #ef4444);
+  }
+  .pin-3d-emoji { font-size: 16px; line-height: 1; }
+  .pin-3d-title { font-size: 11px; font-weight: 800; color: #0f172a; white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+  .pin-3d-beacon {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--dot-color, #ef4444);
+    box-shadow: 0 0 12px var(--dot-color, #ef4444);
+    margin-top: 3px;
+  }
+  .pin-3d-pulse {
+    position: absolute;
+    bottom: -4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--dot-color, #ef4444);
+    animation: mapPulse 2s infinite;
+    opacity: 0;
+  }
+  @keyframes mapPulse {
+    0% { transform: scale(0.5); opacity: 0.9; }
+    100% { transform: scale(2.2); opacity: 0; }
+  }
+
+  .leaflet-popup-content-wrapper {
+    background: rgba(255, 255, 255, 0.98) !important;
+    backdrop-filter: blur(16px) !important;
+    border-radius: 22px !important;
+    box-shadow: 0 20px 35px -10px rgba(15, 23, 42, 0.3), 0 0 0 1px rgba(226, 232, 240, 0.9) !important;
+    padding: 2px !important;
+  }
+  .leaflet-popup-tip { background: rgba(255, 255, 255, 0.98) !important; }
+
+  /* Logo SVG K-CHAN */
+  .logo-kchan { color: #fff; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .logo-symbol { width: 80px; height: 60px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2)); }
+  .logo-text { font-family: 'Inter', sans-serif; font-weight: 900; letter-spacing: -1px; font-size: 28px; color: #fff; }
+
+  /* Animaciones */
+  @keyframes fadeInUp {
+    from { opacity:0; transform:translateY(20px); }
+    to { opacity:1; transform:translateY(0); }
+  }
+  .animate-in { animation: fadeInUp 0.6s ease-out forwards; }
+  .leaflet-container { font-family:'Inter',sans-serif; background:#eef2f7; }
+  .map-shell { border-radius:24px; overflow:hidden; border:1px solid #e2e8f0; box-shadow:0 12px 30px rgba(15,23,42,.08); }
+  #loginSplash { position:fixed; inset:0; z-index:100; display:none; align-items:center; justify-content:center; flex-direction:column; background:radial-gradient(800px 500px at 50% 35%, #2a0000 0%, #090909 55%, #000 100%); }
+  #loginSplash.show { display:flex; animation:splashFade .25s ease-out; }
+  .splash-logo { animation:splashLogo 1.2s ease-in-out infinite; }
+  .splash-text { animation:splashText .8s ease-out both; }
+  .splash-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:#ff1e27; margin:0 3px; animation:splashDot 1s infinite ease-in-out; }
+  .splash-dot:nth-child(2){animation-delay:.15s}.splash-dot:nth-child(3){animation-delay:.3s}
+  @keyframes splashFade { from{opacity:0} to{opacity:1} }
+  @keyframes splashLogo { 0%,100%{transform:scale(1) translateY(0);filter:drop-shadow(0 0 0 rgba(255,30,39,0))} 50%{transform:scale(1.08) translateY(-6px);filter:drop-shadow(0 10px 24px rgba(255,30,39,.35))} }
+  @keyframes splashText { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes splashDot { 0%,80%,100%{opacity:.25;transform:scale(.8)} 40%{opacity:1;transform:scale(1.1)} }
+</style>
+</head>
+<body class="text-slate-800">
+
+<!-- ============ LOGIN ============ -->
+<div id="login" class="min-h-screen flex items-center justify-center p-4 w-full" style="background:radial-gradient(1200px 600px at 70% -10%, #000, transparent), #000;">
+  <div class="w-full max-w-md animate-in">
+    <div class="text-center mb-8">
+      <div class="logo-kchan mb-6 text-center">
+        <div class="flex items-center justify-center gap-2 mb-1">
+          <span class="text-4xl font-black tracking-tight inline-flex">
+            <span class="kchan-letter" style="animation-delay: 0s;">K</span>
+            <span class="kchan-letter" style="animation-delay: 0.15s;">-</span>
+            <span class="kchan-letter" style="animation-delay: 0.3s;">C</span>
+            <span class="kchan-letter" style="animation-delay: 0.45s;">H</span>
+            <span class="kchan-letter" style="animation-delay: 0.6s;">A</span>
+            <span class="kchan-letter" style="animation-delay: 0.75s;">N</span>
+          </span>
+          <span class="w-3.5 h-3.5 rounded-full bg-red-600 inline-block shadow-lg shadow-red-600/50 kchan-red-dot"></span>
+        </div>
+        <div class="text-sm font-bold text-red-500 uppercase tracking-[0.25em]">ASESORES</div>
+      </div>
+      <p class="text-slate-400 text-sm mt-1">Gestión de visitas y seguimiento de locales</p>
+    </div>
+    <div class="card p-8 bg-slate-900/50 border-slate-800 backdrop-blur-md">
+      <label class="text-slate-500">Correo</label>
+      <input id="loginEmail" type="email" placeholder="tu@correo.com" class="mb-4 !bg-slate-950 !border-slate-800 !text-white">
+      <label class="text-slate-500">Contraseña</label>
+      <input id="loginPass" type="password" placeholder="••••••••" class="mb-6 !bg-slate-950 !border-slate-800 !text-white" onkeydown="if(event.key==='Enter') doLogin()">
+      <button id="btnLogin" class="btn-primary shadow-lg shadow-red-900/20" onclick="doLogin()">Iniciar sesión</button>
+      <p id="loginError" class="text-red-400 text-xs font-bold text-center mt-4 hidden"></p>
+      <p class="text-slate-500 text-xs text-center mt-4">Asesoras: pide tu correo y contraseña al administrador.</p>
+    </div>
+    <p class="text-center text-xs text-slate-600 mt-6 font-medium">K-CHAN v2.0 · Sistema Oficial</p>
+  </div>
+</div>
+
+<!-- ============ LOGIN SPLASH ============ -->
+<div id="loginSplash" aria-hidden="true">
+  <div class="splash-logo flex flex-col items-center">
+    <div class="flex items-center justify-center gap-2">
+      <span class="text-5xl font-black text-white tracking-tight">K-CHAN</span>
+      <span class="w-3.5 h-3.5 rounded-full bg-red-600 inline-block shadow-lg shadow-red-600/50"></span>
+    </div>
+    <div class="text-sm font-bold text-red-500 uppercase tracking-[0.25em] mt-1">ASESORES</div>
+  </div>
+  <div class="text-slate-400 text-sm font-semibold mt-4 splash-text">Cargando tu espacio de trabajo</div>
+  <div class="mt-4"><span class="splash-dot"></span><span class="splash-dot"></span><span class="splash-dot"></span></div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" class="hidden min-h-screen lg:flex w-full">
+  <!-- Sidebar -->
+  <aside class="hidden lg:flex flex-col w-64 bg-white border-r border-slate-200 p-4 fixed h-full z-40" style="padding-top: max(env(safe-area-inset-top), 24px);">
+    <div class="flex items-center gap-1.5 px-2 mb-8">
+      <span class="font-black text-slate-900 tracking-tight text-2xl">K-CHAN</span>
+      <span class="w-3 h-3 rounded-full bg-red-600 inline-block"></span>
+      <span class="text-xs font-bold text-red-600 uppercase tracking-widest ml-1">ASESORES</span>
+    </div>
+    <p id="syncStatus" class="text-[10px] font-bold px-2 mb-4 -mt-6" style="color:#eab308">🔄 Conectando…</p>
+    <nav class="space-y-1 flex-1" id="sideNav"></nav>
+    <div class="card p-3 flex items-center gap-3 border-none shadow-none bg-slate-50">
+      <div class="w-10 h-10 rounded-full bg-red-600 text-white font-bold flex items-center justify-center" id="avatarSide">L</div>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-semibold text-slate-900 truncate" id="userNameSide">—</p>
+        <p class="text-xs text-slate-500" id="userRoleSide">—</p>
+      </div>
+      <button onclick="logout()" class="text-slate-400 hover:text-red-600" title="Cerrar sesión">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 lg:ml-64 pb-24 lg:pb-8 w-full max-w-full overflow-x-hidden">
+    <!-- Topbar móvil -->
+    <div class="lg:hidden sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm" style="padding-top: max(env(safe-area-inset-top), 14px);">
+      <div class="flex items-center gap-1.5">
+         <span class="font-black text-slate-900 tracking-tight text-base">K-CHAN</span>
+         <span class="w-2 h-2 rounded-full bg-red-600 inline-block"></span>
+         <span class="text-[10px] font-bold text-red-600 uppercase tracking-widest">ASESORES</span>
+         <span id="syncStatusMob" class="text-[9px] font-bold ml-1" style="color:#eab308">🔄</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-full bg-red-600 text-white text-sm font-bold flex items-center justify-center" id="avatarMob">L</div>
+        <button onclick="logout()" class="text-slate-500"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
+      </div>
+    </div>
+
+    <div class="p-4 lg:p-8 max-w-6xl mx-auto">
+
+      <!-- INICIO -->
+      <section id="scr-inicio" class="screen">
+        <div class="hero-card mb-6 animate-in">
+           <div class="flex items-center gap-5 mb-4">
+              <div class="w-16 h-16 rounded-2xl bg-white flex flex-col items-center justify-center shadow-xl p-1 shrink-0">
+                 <div class="flex items-center gap-0.5">
+                   <span class="font-black text-slate-900 tracking-tight text-sm leading-none">K-CHAN</span>
+                   <span class="w-1.5 h-1.5 rounded-full bg-red-600 inline-block"></span>
+                 </div>
+                 <span class="text-[8px] font-bold text-red-600 tracking-widest mt-0.5 leading-none">ASESORES</span>
+              </div>
+              <div>
+                 <h2 class="text-2xl font-black text-white leading-tight">Hola, <span id="greetName">—</span> 👋</h2>
+                 <p class="text-red-100 text-sm font-bold opacity-80" id="greetSub">—</p>
+              </div>
+           </div>
+           <div class="flex gap-4 text-xs font-bold text-red-500">
+              <span class="bg-white/90 px-3 py-1.5 rounded-full">K-CHAN OFFICIAL</span>
+              <span class="bg-white/20 text-white px-3 py-1.5 rounded-full border border-white/30">ZONA BOGOTÁ</span>
+           </div>
+        </div>
+
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8" id="statCards"></div>
+
+        <div class="grid lg:grid-cols-2 gap-6">
+          <div class="card p-6">
+            <h3 class="font-bold text-slate-900 mb-5 flex items-center gap-2">
+               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>
+               Próximas visitas
+            </h3>
+            <div id="proxVisitas" class="space-y-4"></div>
+          </div>
+          <div class="card p-6">
+            <h3 class="font-bold text-slate-900 mb-5 flex items-center gap-2">
+               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+               Últimos registros
+            </h3>
+            <div id="ultRegistros" class="space-y-4"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DIRECTORIO DE TIENDAS -->
+      <section id="scr-tiendas" class="screen">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-xl lg:text-2xl font-bold text-slate-900">Directorio de Tiendas</h2>
+            <p class="text-slate-500 text-sm">Explora todas las tiendas registradas por los asesores</p>
+          </div>
+          <p class="text-xs font-black text-red-600 bg-red-50 border border-red-100 px-3.5 py-1.5 rounded-full shadow-sm" id="cntTiendasVista">—</p>
+        </div>
+
+        <!-- Filtros -->
+        <div class="card p-4 mb-6 shadow-sm border-slate-200">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+              <label class="text-[11px] font-black text-slate-500 uppercase tracking-wider block mb-1">🔍 Buscar</label>
+              <input id="fFiltroTexto" type="text" placeholder="Nombre, barrio, dir..." class="w-full text-sm" oninput="renderVistaTiendas()">
+            </div>
+            <div>
+              <label class="text-[11px] font-black text-slate-500 uppercase tracking-wider block mb-1">👤 Asesor</label>
+              <select id="fFiltroAsesor" class="w-full text-sm" onchange="renderVistaTiendas()"></select>
+            </div>
+            <div>
+              <label class="text-[11px] font-black text-slate-500 uppercase tracking-wider block mb-1">🏪 Tipo de negocio</label>
+              <select id="fFiltroTipo" class="w-full text-sm" onchange="renderVistaTiendas()">
+                <option value="todos">Todos los tipos</option>
+                <option value="Tienda de barrio">Tienda de barrio</option>
+                <option value="Ferretería">Ferretería</option>
+                <option value="Verdurería">Verdurería</option>
+                <option value="Panadería">Panadería</option>
+                <option value="Papelería">Papelería</option>
+                <option value="Supermercados">Supermercados</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[11px] font-black text-slate-500 uppercase tracking-wider block mb-1">📌 Estado</label>
+              <select id="fFiltroEstado" class="w-full text-sm" onchange="renderVistaTiendas()">
+                <option value="todos">Todos los estados</option>
+                <option value="nueva">Nueva</option>
+                <option value="contactada">Contactada</option>
+                <option value="negociacion">En negociación</option>
+                <option value="cliente">Cliente activo</option>
+                <option value="visitar_despues">Visitar después</option>
+                <option value="rechazada">Rechazada</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grid de Tarjetas -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" id="gridTiendasVista"></div>
+      </section>
+
+      <!-- MAPA HD 3D FUTURISTA -->
+      <section id="scr-mapa" class="screen">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 class="text-xl lg:text-2xl font-bold text-slate-900 flex items-center gap-2">
+              🗺️ Mapa Interactivo 3D
+              <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 bg-red-600 text-white rounded-full">2026 HD</span>
+            </h2>
+            <p class="text-slate-500 text-sm" id="mapaSub">Puntos georreferenciados en vivo</p>
+          </div>
+
+          <!-- Selector de Estilo de Mapa -->
+          <div class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+            <button onclick="cambiarEstiloMapa('satellite')" id="btnMapSat" class="px-3 py-1.5 rounded-xl text-xs font-bold transition bg-white text-slate-900 shadow-sm">🛰️ Satélite HD</button>
+            <button onclick="cambiarEstiloMapa('street')" id="btnMapStreet" class="px-3 py-1.5 rounded-xl text-xs font-bold transition text-slate-600 hover:text-slate-900">🗺️ Calles HD</button>
+            <button onclick="cambiarEstiloMapa('topo')" id="btnMapTopo" class="px-3 py-1.5 rounded-xl text-xs font-bold transition text-slate-600 hover:text-slate-900">🏔️ Topográfico 3D</button>
+          </div>
+        </div>
+
+        <div class="flex gap-2 overflow-x-auto pb-3" id="filtrosEstado"></div>
+
+        <div class="card overflow-hidden shadow-2xl border-slate-200 relative">
+          <div id="map" style="height:68vh; min-height:450px; background:#0f172a;" class="rounded-2xl"></div>
+          <button onclick="centrarMiUbicacion()" class="absolute bottom-6 right-6 z-[999] px-4 py-3 bg-white/95 backdrop-blur-md text-slate-900 font-extrabold text-xs rounded-2xl shadow-2xl border border-slate-200 flex items-center gap-2 hover:bg-slate-50 transition-all transform hover:scale-105">
+            <span class="w-3 h-3 rounded-full bg-blue-600 animate-ping"></span>
+            🎯 Centrar en mi ubicación
+          </button>
+        </div>
+        <div class="flex flex-wrap gap-4 mt-4 text-xs text-slate-500 font-medium" id="leyenda"></div>
+      </section>
+
+      <!-- REGISTRAR -->
+      <section id="scr-registrar" class="screen">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-[10px] font-black uppercase tracking-widest px-3 py-1 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-full shadow-md shadow-red-600/30">✨ Registro 3D Pro</span>
+              <span class="text-xs font-bold text-slate-400">Geolocalización en vivo</span>
+            </div>
+            <h2 class="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight">Registrar nueva tienda</h2>
+            <p class="text-slate-500 text-sm mt-0.5">Captura la ubicación GPS, datos comerciales y agenda la primera visita con precisión milimétrica</p>
+          </div>
+        </div>
+
+        <div class="grid lg:grid-cols-5 gap-6">
+          <!-- Formulario Principal (3 col) -->
+          <div class="card p-6 lg:p-7 lg:col-span-3 space-y-6 shadow-2xl border border-slate-200/80 bg-white relative overflow-hidden">
+            <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-600 via-red-500 to-slate-900"></div>
+            <div class="flex items-center gap-2 pb-3 border-b border-slate-100">
+              <div class="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center font-bold text-sm shadow-sm">🏢</div>
+              <div>
+                <h3 class="font-black text-slate-900 text-base">Información Comercial</h3>
+                <p class="text-xs text-slate-400">Datos principales del establecimiento</p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div class="col-span-2">
+                <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5 block">Nombre de la tienda *</label>
+                <input id="fNombre" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium" placeholder="Ej: Tienda La Esperanza">
+              </div>
+              <div>
+                <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5 block">Tipo de negocio *</label>
+                <select id="fTipo" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium" onchange="toggleTipoOtro(this, 'wrapFTipoOtro')">
+                  <option value="Tienda de barrio" selected>Tienda de barrio</option>
+                  <option value="Ferretería">Ferretería</option>
+                  <option value="Verdurería">Verdurería</option>
+                  <option value="Panadería">Panadería</option>
+                  <option value="Papelería">Papelería</option>
+                  <option value="Supermercados">Supermercados</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5 block">Zona (Localidad) *</label>
+                <select id="fZona" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium"></select>
+              </div>
+              <div id="wrapFTipoOtro" class="hidden col-span-2">
+                <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5 block">¿Cuál tipo de negocio? *</label>
+                <input id="fTipoOtro" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium" placeholder="Ej: Carnicería, Papelería...">
+              </div>
+              <div>
+                <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5 block">Barrio *</label>
+                <input id="fBarrio" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium" placeholder="Ej: La Soledad" onblur="if(!gps && this.value.trim()) ubicarPorDireccion(false)">
+              </div>
+              <div class="col-span-2">
+                <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5 block">Dirección *</label>
+                <input id="fDir" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium" placeholder="Ej: Calle 45 #12-30" onblur="if(this.value.trim()) ubicarPorDireccion(false)">
+              </div>
+              <div>
+                <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5 block">Nombre del contacto</label>
+                <input id="fContacto" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium" placeholder="Ej: Doña María">
+              </div>
+              <div>
+                <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5 block">Teléfono</label>
+                <input id="fTel" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium" placeholder="300 123 4567">
+              </div>
+              <div class="col-span-2">
+                <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5 block">Notas de la visita</label>
+                <textarea id="fNotas" rows="3" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium" placeholder="Ej: Atiende muy bien, pidió volver en la tarde para revisar catálogo..."></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Panel Lateral GPS / Foto / Agenda (2 col) -->
+          <div class="lg:col-span-2 space-y-5">
+            <!-- MiniMap Card -->
+            <div class="card p-6 shadow-2xl border border-slate-200/80 bg-white relative overflow-hidden">
+              <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-600 to-slate-900"></div>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-black text-slate-900 text-sm flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
+                  Ubicación GPS 3D
+                </h3>
+                <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">Preciso</span>
+              </div>
+              <div id="miniMap" style="height:190px;border-radius:16px;background:#0f172a;" class="mb-4 border-2 border-slate-200 shadow-inner"></div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-3">
+                <button type="button" class="px-4 py-3 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-extrabold text-xs shadow-lg shadow-red-600/25 transition-all transform hover:-translate-y-0.5 flex items-center justify-center gap-1.5" onclick="capturarGPS()">🛰️ GPS Celular</button>
+                <button type="button" class="px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs shadow-lg shadow-slate-900/20 transition-all transform hover:-translate-y-0.5 flex items-center justify-center gap-1.5" onclick="ubicarPorDireccion(false)">🔍 Por Dirección</button>
+              </div>
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-start gap-2">
+                <span class="text-red-500 text-sm font-bold mt-0.5">📍</span>
+                <p class="text-[11px] font-medium text-slate-600 leading-relaxed" id="gpsTxt">Sin ubicación capturada — usa el GPS del celular, ingresa la dirección o toca el mapa para fijar el pin exacto.</p>
+              </div>
+            </div>
+
+            <!-- Foto Card -->
+            <div class="card p-6 shadow-2xl border border-slate-200/80 bg-white relative overflow-hidden">
+              <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-600 to-slate-900"></div>
+              <h3 class="font-black text-slate-900 text-sm mb-3 flex items-center gap-2">
+                <span>📷</span> Evidencia Fotográfica
+              </h3>
+              <div class="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center cursor-pointer hover:border-red-500 hover:bg-red-50/20 transition-all group" onclick="document.getElementById('fFoto').click()">
+                <div class="w-12 h-12 rounded-2xl bg-slate-100 group-hover:bg-red-100 text-slate-500 group-hover:text-red-600 flex items-center justify-center mx-auto mb-2 transition-all shadow-sm">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                </div>
+                <p class="text-xs font-bold text-slate-700" id="fotoTxt">Toca para tomar foto o subir archivo</p>
+                <p class="text-[10px] text-slate-400 mt-1">Soporta cámara o galería (Opcional)</p>
+                <input id="fFoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="fotoCargada(this)">
+              </div>
+            </div>
+
+            <!-- Agendar Card -->
+            <div class="card p-6 shadow-2xl border border-slate-200/80 bg-white relative overflow-hidden">
+              <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-blue-600 to-slate-900"></div>
+              <h3 class="font-black text-slate-900 text-sm mb-3 flex items-center gap-2">
+                <span>🗓️</span> Agendar Primera Visita
+              </h3>
+              <input id="fFecha" type="datetime-local" class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white transition-all text-sm font-medium">
+            </div>
+
+            <!-- Guardar Button 3D -->
+            <button class="w-full bg-gradient-to-r from-red-600 via-red-700 to-red-800 hover:from-red-500 hover:to-red-700 text-white font-black py-4 px-6 rounded-2xl shadow-xl shadow-red-600/30 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 text-sm tracking-wide" onclick="guardarTienda()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              Guardar Tienda 3D
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- AGENDA -->
+      <section id="scr-agenda" class="screen">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div>
+            <h2 class="text-xl lg:text-2xl font-black text-slate-900">Agenda de visitas</h2>
+            <p class="text-slate-500 text-sm">Gestiona tus próximos compromisos</p>
+          </div>
+          <div class="flex gap-2 overflow-x-auto pb-1" id="filtrosAgenda"></div>
+        </div>
+        <div class="card p-2 shadow-sm border-slate-200"><div id="listaAgenda" class="space-y-1"></div></div>
+      </section>
+
+      <!-- ADMIN -->
+      <section id="scr-admin" class="screen">
+        <div class="hidden print:block text-center mb-6 pb-4 border-b-2 border-red-600">
+          <h1 class="text-3xl font-black text-slate-900 tracking-tight">K-CHAN ASESORES</h1>
+          <p class="text-xs font-black text-red-600 uppercase tracking-widest mt-1">Informe Ejecutivo de Gestión Comercial</p>
+          <p class="text-xs text-slate-500 mt-1 font-semibold">Fecha de emisión: <span id="printDate"></span> · Bogotá D.C. (K-CHAN ASESORES)</p>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 class="text-xl lg:text-2xl font-bold text-slate-900">Panel de administración</h2>
+          <div class="flex flex-wrap gap-2 lg:w-auto w-full">
+            <button onclick="descargarReporte()" class="btn-primary lg:w-auto flex-1 px-4 py-3 flex items-center justify-center gap-2 shadow-lg shadow-red-900/10 text-xs">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"/></svg>
+              Descargar (.xlsx)
+            </button>
+            <button onclick="descargarReportePDF()" class="btn-primary lg:w-auto flex-1 px-4 py-3 flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/10 text-xs !bg-indigo-600 hover:!bg-indigo-700">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              📥 Exportar Informe PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- Pestañas del Panel Administrador -->
+        <div class="flex gap-2 mb-6 border-b border-slate-200 pb-2">
+          <button id="btnTabStats" onclick="switchAdminTab('stats')" class="px-4 py-2 font-bold text-sm rounded-xl bg-red-600 text-white shadow-sm">📊 Estadísticas & Asesores</button>
+          <button id="btnTabCatalog" onclick="switchAdminTab('catalog')" class="px-4 py-2 font-bold text-sm rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200">🏪 Catálogo de Tiendas</button>
+        </div>
+
+        <!-- VISTA 1: Estadísticas & Asesores -->
+        <div id="adminViewStats">
+          <p class="text-slate-500 text-sm mb-6">Todas las tiendas registradas por los asesores</p>
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6" id="adminStats"></div>
+
+          <!-- Informes Avanzados con Diagramas Circulares 3D y Tablas Detalladas -->
+          <div class="card p-6 mb-6 shadow-2xl border border-slate-200/80 bg-white relative overflow-hidden">
+            <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-600 via-indigo-600 to-blue-600"></div>
+            <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+              <div>
+                <h3 class="font-black text-slate-900 text-lg flex items-center gap-2">
+                  📊 Informes Ejecutivos & Diagramas Circulares 3D
+                </h3>
+                <p class="text-xs text-slate-500 mt-1">Análisis detallado por estado, tipo de negocio, zona y rendimiento de asesores</p>
+              </div>
+            </div>
+
+            <!-- Gráficos 3D Circulares (SVG con efecto 3D y gradientes) -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <!-- Diagrama 1: Por Estado -->
+              <div class="p-5 rounded-2xl bg-slate-50/80 border border-slate-200 shadow-inner flex flex-col items-center">
+                <h4 class="font-bold text-slate-800 text-sm mb-3">🎯 Distribución 3D por Estado</h4>
+                <div id="chartEstado3D" class="w-full flex justify-center py-2"></div>
+                <div id="legendEstado3D" class="w-full mt-3 grid grid-cols-2 gap-2 text-xs"></div>
+              </div>
+
+              <!-- Diagrama 2: Por Tipo de Negocio -->
+              <div class="p-5 rounded-2xl bg-slate-50/80 border border-slate-200 shadow-inner flex flex-col items-center">
+                <h4 class="font-bold text-slate-800 text-sm mb-3">🏢 Distribución 3D por Tipo de Negocio</h4>
+                <div id="chartTipo3D" class="w-full flex justify-center py-2"></div>
+                <div id="legendTipo3D" class="w-full mt-3 grid grid-cols-2 gap-2 text-xs"></div>
+              </div>
+            </div>
+
+            <!-- Tablas Estadísticas Detalladas -->
+            <h4 class="font-bold text-slate-900 text-sm mb-3">📋 Tabla Resumen por Asesor y Rendimiento</h4>
+            <div class="card overflow-x-auto shadow-sm mb-6">
+              <table class="w-full tbl min-w-[650px]">
+                <thead>
+                  <tr>
+                    <th>Asesor Responsable</th>
+                    <th>Tiendas Registradas</th>
+                    <th>Clientes Cierre</th>
+                    <th>Prospectos</th>
+                    <th>Efectividad</th>
+                  </tr>
+                </thead>
+                <tbody id="tableAsesoresStats"></tbody>
+              </table>
+            </div>
+
+            <h4 class="font-bold text-slate-900 text-sm mb-3">🗺️ Tabla Resumen por Zona / Localidad</h4>
+            <div class="card overflow-x-auto shadow-sm">
+              <table class="w-full tbl min-w-[500px]">
+                <thead>
+                  <tr>
+                    <th>Zona / Localidad</th>
+                    <th>Total Registros</th>
+                    <th>Porcentaje del Total</th>
+                  </tr>
+                </thead>
+                <tbody id="tableZonasStats"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Configuración Google Sheets -->
+          <div class="card p-5 mb-6 shadow-sm border-slate-200">
+            <h3 class="font-black text-slate-900 mb-1">🔗 Sincronización con Google Sheets</h3>
+            <p class="text-slate-500 text-xs mb-3">Ingresa la URL de la aplicación web de Google Apps Script para vincular tu hoja de cálculo:</p>
+            <div class="flex flex-col sm:flex-row gap-3 mb-4">
+              <input id="gsheetUrl" class="flex-1" placeholder="https://script.google.com/macros/s/.../exec" value="https://script.google.com/macros/s/AKfycbxDzROXK9jN65YsrktcACRGZJ3H1Hpx5z_doXAerTy2gp9kAuKIWfSIxyKNQNLgYOpd/exec">
+              <button onclick="guardarGsheetUrl()" class="px-5 py-3 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition shrink-0">💾 Guardar URL</button>
+            </div>
+            <div class="flex items-center gap-3">
+              <button onclick="sincronizarGoogleSheets()" class="btn-primary lg:w-auto px-6 py-3 flex items-center justify-center gap-2 !bg-emerald-600 hover:!bg-emerald-700 shadow-md text-sm">
+                🔄 Sincronizar tiendas con Google Sheets ahora
+              </button>
+            </div>
+          </div>
+
+          <!-- Enviar Reporte por Correo Electrónico -->
+          <div class="card p-5 mb-6 shadow-sm border-slate-200">
+            <h3 class="font-black text-slate-900 mb-1">✉️ Enviar Reporte por Correo Electrónico</h3>
+            <p class="text-slate-500 text-xs mb-3">Escribe el correo electrónico de destino para enviar el reporte en Excel (.xlsx):</p>
+            <div class="flex flex-col sm:flex-row gap-3">
+              <input id="emailDestino" type="email" class="flex-1" placeholder="ejemplo@kchan.co">
+              <button onclick="enviarReportePorCorreo()" class="btn-primary lg:w-auto px-6 py-3 flex items-center justify-center gap-2 !bg-blue-600 hover:!bg-blue-700 shadow-md text-sm shrink-0">
+                📧 Enviar Reporte
+              </button>
+            </div>
+          </div>
+
+          <div class="card p-5 mb-6 shadow-sm border-slate-200">
+            <h3 class="font-black text-slate-900 mb-1">Gestión de asesores</h3>
+            <p class="text-slate-500 text-xs mb-4">Crea el correo y la contraseña con los que cada asesora iniciará sesión.</p>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4">
+              <div><label>Nombre</label><input id="aNombre" placeholder="Laura Gómez"></div>
+              <div><label>Correo</label><input id="aCorreo" type="email" placeholder="laura@tiendasbogota.co"></div>
+              <div><label>Contraseña</label><input id="aPass" type="text" placeholder="Mínimo 6 caracteres"></div>
+            </div>
+            <button class="btn-primary lg:w-auto lg:px-8" onclick="guardarAsesor()">Crear / actualizar acceso</button>
+            <div class="mt-5 space-y-2" id="listaAsesores"></div>
+          </div>
+
+          <!-- Limpieza de Base de Datos -->
+          <div class="card p-5 mb-6 shadow-sm border-slate-200 border-l-4 border-l-red-600">
+            <h3 class="font-black text-slate-900 mb-1">🗑️ Vaciar / Eliminar todas las tiendas</h3>
+            <p class="text-slate-500 text-xs mb-3">Utiliza esta opción para borrar de forma definitiva todas las tiendas registradas en la base de datos de Firebase y en el almacenamiento local para dejar la aplicación totalmente limpia para su entrega o venta.</p>
+            <button onclick="eliminarTodasLasTiendas()" class="btn-primary lg:w-auto px-6 py-3 flex items-center justify-center gap-2 !bg-red-600 hover:!bg-red-700 shadow-md text-sm">
+              🗑️ Eliminar todas las tiendas registradas
+            </button>
+          </div>
+
+          <div class="card overflow-x-auto shadow-sm max-w-full">
+            <table class="w-full tbl min-w-[820px]">
+              <thead><tr><th>Tienda</th><th>Zona</th><th>Asesor</th><th>Estado</th><th>Último seguimiento</th><th>Acciones</th></tr></thead>
+              <tbody id="adminTable"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- VISTA 2: Catálogo de Tiendas -->
+        <div id="adminViewCatalog" class="hidden">
+          <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+            <input id="searchCatalog" type="text" placeholder="🔍 Buscar por nombre, barrio, zona o asesor..." class="!w-full max-w-md" oninput="renderAdminCatalog()">
+            <p class="text-xs font-bold text-slate-500" id="catCount">—</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="adminCatalogGrid"></div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Bottom nav móvil -->
+  <nav class="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 flex justify-around py-2 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]" id="bottomNav"></nav>
+</div>
+
+<!-- FICHA TIENDA / EDITAR (modal) -->
+<div id="modal" class="hidden fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+  <div class="max-w-2xl mx-auto my-6" id="modalContent"></div>
+</div>
+
+<script>
+/* ================== COMPRESOR DE IMÁGENES ================== */
+async function comprimirImagen(base64Str, maxWidth = 800, quality = 0.7) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+  });
+}
+/* ================== DATOS ================== */
+const ESTADOS = {
+  nueva:{label:'Nueva',color:'#3b82f6'},
+  contactada:{label:'Contactada',color:'#eab308'},
+  negociacion:{label:'En negociación',color:'#f97316'},
+  visitar_despues:{label:'Visitar después',color:'#a855f7'},
+  rechazada:{label:'Rechazada',color:'#ef4444'},
+  cliente:{label:'Cliente activo',color:'#22c55e'}
+};
+const ZONAS = ['Usaquén','Chapinero','Santa Fe','San Cristóbal','Usme','Tunjuelito','Bosa','Kennedy','Fontibón','Engativá','Suba','Barrios Unidos','Teusaquillo','Los Mártires','Antonio Nariño','Puente Aranda','Rafael Uribe Uribe','Ciudad Bolívar'];
+
+const SAMPLE = [];
+
+/* ================== FIREBASE (sincronización + autenticación real + persistencia offline) ================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyDo1J6TQ25bLFVwIpOj7KbeotUOfvMqvYI",
+  authDomain: "asesorapp-7b820.firebaseapp.com",
+  projectId: "asesorapp-7b820",
+  storageBucket: "asesorapp-7b820.firebasestorage.app",
+  messagingSenderId: "165033305805",
+  appId: "1:165033305805:web:ba370414a078b5bf29eb84",
+  measurementId: "G-7TVVLPYV5M"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
+
+// Activar persistencia offline en Firestore
+try {
+  db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
+    if (err.code === 'failed-precondition') {
+      console.warn('Persistencia Firestore: Múltiples pestañas abiertas');
+    } else if (err.code === 'unimplemented') {
+      console.warn('Persistencia Firestore: No soportada en este navegador');
+    }
+  });
+} catch (e) {
+  console.warn('Error al activar persistencia Firestore:', e);
+}
+
+const tiendasCol = db.collection('tiendas');
+const usuariosCol = db.collection('usuarios');
+
+const ADMIN_EMAILS = ['naidervpn@gmail.com', 'administrador@kchan.com'];
+
+function isAdminEmail(email) {
+  return ADMIN_EMAILS.includes((email || '').toLowerCase());
+}
+
+function getAdminPass(email) {
+  const em = (email || '').toLowerCase();
+  if (em === 'administrador@kchan.com') return '123456';
+  return 'Naider98';
+}
+
+function traducirError(code){
+  const map = {
+    'auth/wrong-password':'Correo o contraseña incorrectos.',
+    'auth/user-not-found':'Correo o contraseña incorrectos.',
+    'auth/invalid-credential':'Correo o contraseña incorrectos.',
+    'auth/invalid-login-credentials':'Correo o contraseña incorrectos.',
+    'auth/invalid-email':'El correo no es válido.',
+    'auth/too-many-requests':'Demasiados intentos. Espera un momento e intenta de nuevo.',
+    'auth/network-request-failed':'Sin conexión a internet.',
+    'auth/weak-password':'La contraseña debe tener al menos 6 caracteres.',
+    'auth/email-already-in-use':'Ese correo ya tiene una cuenta creada.'
+  };
+  return map[code] || ('Error: '+(code||'desconocido'));
+}
+
+function setSyncStatus(txt, color){
+  ['syncStatus','syncStatusMob'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el){ el.textContent = txt; el.style.color = color; }
+  });
+}
+
+window.addEventListener('online', () => {
+  setSyncStatus('☁️ Conectado (En línea)', '#22c55e');
+  if (user) {
+    try { attachListeners(); } catch(e){}
+  }
+});
+
+window.addEventListener('offline', () => {
+  setSyncStatus('📡 Modo Offline (Guardado local)', '#f59e0b');
+});
+
+function toggleTipoOtro(sel, wrapId){
+  const wrap = document.getElementById(wrapId);
+  if(wrap) wrap.classList.toggle('hidden', sel.value !== 'Otro');
+}
+
+function getListaAsesores(asesorActual) {
+  const lista = [];
+  if (asesorActual && typeof asesorActual === 'string' && asesorActual.trim()) {
+    lista.push(asesorActual.trim());
+  }
+  if (Array.isArray(asesoresState)) {
+    for (let i = 0; i < asesoresState.length; i++) {
+      const item = asesoresState[i];
+      const nombre = (item && typeof item === 'object') ? item.nombre : item;
+      if (nombre && typeof nombre === 'string' && nombre.trim() && !lista.includes(nombre.trim())) {
+        lista.push(nombre.trim());
+      }
+    }
+  }
+  if (!lista.length) {
+    lista.push('Sin asesor');
+  }
+  return lista;
+}
+
+/* ================== ESTADO ================== */
+function normalizarTienda(t = {}) {
+  let tipoNorm = t.tipo || 'Tienda de barrio';
+  if (tipoNorm === 'Verdulería') tipoNorm = 'Verdurería';
+  return {
+    id: String(t.id ?? Date.now()),
+    asesor: t.asesor || '',
+    nombre: t.nombre || 'Tienda sin nombre',
+    tipo: tipoNorm,
+    zona: t.zona || '',
+    barrio: t.barrio || '',
+    dir: t.dir || '',
+    contacto: t.contacto || '',
+    tel: t.tel || '',
+    lat: Number(t.lat) || 4.65,
+    lng: Number(t.lng) || -74.10,
+    estado: ESTADOS[t.estado] ? t.estado : 'nueva',
+    notas: t.notas || '',
+    fecha: t.fecha || null,
+    foto: t.foto || null,
+    seg: Array.isArray(t.seg) ? t.seg : []
+  };
+}
+
+let tiendas = (JSON.parse(localStorage.getItem('tb_tiendas') || 'null') || []).map(normalizarTienda);
+let user = null, filtroEstado = 'todos', filtroAgenda = 'todos', map, miniMap, miniMarker, gps = null, fotoData = null;
+let asesoresState = [];
+let unsubTiendas = null, unsubAsesores = null;
+
+function save(){
+  try { localStorage.setItem('tb_tiendas', JSON.stringify(tiendas)); } catch(e) { }
+}
+
+async function syncTienda(t){
+  const normalized = normalizarTienda(t);
+  const idx = tiendas.findIndex(x => String(x.id) === String(normalized.id));
+  if (idx >= 0) {
+    tiendas[idx] = normalized;
+  } else {
+    tiendas.push(normalized);
+  }
+  save(); // Guardado local inmediato en localStorage
+  if (user) renderAll();
+
+  if (!navigator.onLine) {
+    setSyncStatus('📡 Guardado localmente (Sin conexión)', '#f59e0b');
+    tiendasCol.doc(String(normalized.id)).set(normalized).catch(() => {});
+    return;
+  }
+
+  setSyncStatus('🔄 Sincronizando en vivo…', '#eab308');
+  try {
+    await tiendasCol.doc(String(normalized.id)).set(normalized);
+    setSyncStatus('☁️ Sincronizado', '#22c55e');
+  } catch(e) {
+    console.error('Firestore sync error:', e);
+    setSyncStatus('📡 Guardado localmente (Pendiente de sincronizar)', '#f59e0b');
+  }
+}
+
+async function eliminarTienda(id){
+  if(!user){ alert('Debes iniciar sesión para eliminar tiendas.'); return; }
+  const targetId = String(id);
+  const t = tiendas.find(x => String(x.id) === targetId);
+  if(!t) return;
+  if(!confirm(`¿Eliminar definitivamente la tienda "${t.nombre}"?\n\nSe eliminará de todos los dispositivos en tiempo real.`)) return;
+
+  tiendas = tiendas.filter(x => String(x.id) !== targetId);
+  save(); // Eliminar de localStorage de inmediato
+  if (user) renderAll();
+  cerrarModal();
+
+  if (!navigator.onLine) {
+    setSyncStatus('📡 Eliminada localmente (Sin conexión)', '#f59e0b');
+    tiendasCol.doc(targetId).delete().catch(() => {});
+    return;
+  }
+
+  try {
+    setSyncStatus('🔄 Eliminando…', '#eab308');
+    await tiendasCol.doc(targetId).delete();
+    setSyncStatus('☁️ Sincronizado', '#22c55e');
+  } catch(e) {
+    console.error('Firestore delete error:', e);
+    setSyncStatus('📡 Eliminada localmente (Pendiente de sincronizar)', '#f59e0b');
+  }
+}
+
+async function eliminarTodasLasTiendas(){
+  if(!user || user.rol !== 'admin'){
+    alert('Solo un administrador puede realizar esta acción.');
+    return;
+  }
+  if(!tiendas || tiendas.length === 0){
+    alert('No hay tiendas registradas para eliminar.');
+    return;
+  }
+  const cant = tiendas.length;
+  if(!confirm(`⚠️ ¿Deseas ELIMINAR DEFINITIVAMENTE las ${cant} tiendas registradas?\n\nEsta acción borrará todas las tiendas registradas en la nube (Firebase) y en el dispositivo local.`)) return;
+
+  try {
+    setSyncStatus('🔄 Eliminando todas las tiendas…', '#eab308');
+    const ids = tiendas.map(t => String(t.id));
+
+    tiendas = [];
+    localStorage.removeItem('tb_tiendas');
+    save();
+    renderAll();
+
+    const batch = db.batch();
+    ids.forEach(id => {
+      batch.delete(tiendasCol.doc(id));
+    });
+    await batch.commit();
+
+    setSyncStatus('☁️ Base de datos vaciada', '#22c55e');
+    alert(`✅ Se han eliminado exitosamente las ${cant} tiendas registradas.`);
+  } catch(e) {
+    console.error('Error al vaciar tiendas:', e);
+    alert('Ocurrió un error al intentar eliminar las tiendas: ' + (e.message || e));
+    setSyncStatus('⚠️ Error en eliminación', '#ef4444');
+  }
+}
+
+function attachListeners(){
+  let seeded = false;
+  if (unsubTiendas) unsubTiendas();
+
+  unsubTiendas = tiendasCol.onSnapshot(async (snap) => {
+    if (snap.metadata && snap.metadata.fromCache) {
+      setSyncStatus('📡 Datos locales (Offline)', '#f59e0b');
+    } else {
+      setSyncStatus('☁️ Sincronizado en vivo', '#22c55e');
+    }
+
+    if (snap.empty && !seeded && navigator.onLine) {
+      seeded = true;
+      const batch = db.batch();
+      SAMPLE.forEach(t => batch.set(tiendasCol.doc(String(t.id)), t));
+      try { await batch.commit(); } catch(e) {}
+      return;
+    }
+    seeded = true;
+    if (!snap.empty) {
+      tiendas = snap.docs.map(d => normalizarTienda({ id: d.id, ...d.data() }));
+      save();
+    } else {
+      tiendas = [];
+      save();
+    }
+    if (user) renderAll();
+  }, (err) => {
+    console.warn('Firestore listener warning (Modo Offline activo):', err);
+    setSyncStatus('📡 Modo Offline (Datos locales)', '#f59e0b');
+  });
+
+  if (user && user.rol === 'admin') {
+    if (unsubAsesores) unsubAsesores();
+    unsubAsesores = usuariosCol.where('rol','==','asesor').onSnapshot(snap => {
+      asesoresState = snap.docs.map(d => ({uid:d.id, ...d.data()}));
+      renderAdminAsesores();
+    }, err => console.warn('Error cargando asesores:', err));
+  }
+}
+function detachListeners(){
+  if (unsubTiendas) { unsubTiendas(); unsubTiendas = null; }
+  if (unsubAsesores) { unsubAsesores(); unsubAsesores = null; }
+}
+
+/* ================== GESTIÓN DE ASESORES ================== */
+async function guardarAsesor(){
+  const nombre = document.getElementById('aNombre').value.trim();
+  const correo = document.getElementById('aCorreo').value.trim().toLowerCase();
+  const pass = document.getElementById('aPass').value;
+  if(!nombre || !correo || !pass){ alert('Completa nombre, correo y contraseña.'); return; }
+  if(pass.length < 6){ alert('La contraseña debe tener mínimo 6 caracteres (lo exige Firebase).'); return; }
+  if(isAdminEmail(correo)){ alert('Ese correo está reservado para el administrador.'); return; }
+
+  const secApp = firebase.initializeApp(firebaseConfig, 'crear-asesor-' + Date.now());
+  try {
+    const cred = await secApp.auth().createUserWithEmailAndPassword(correo, pass);
+    await usuariosCol.doc(cred.user.uid).set({nombre, correo, rol:'asesor', activo:true});
+    await secApp.auth().signOut();
+    alert('✅ Acceso creado para ' + nombre + '. Compártele el correo y la contraseña.');
+    ['aNombre','aCorreo','aPass'].forEach(i=>document.getElementById(i).value='');
+  } catch(e){
+    console.error(e);
+    alert('⚠️ No se pudo crear: ' + traducirError(e.code));
+  } finally {
+    secApp.delete().catch(()=>{});
+  }
+}
+async function toggleRestringirAsesor(uid, estadoActual) {
+  const nuevoEstado = !estadoActual;
+  const msg = nuevoEstado ? '¿Permitir el acceso nuevamente a este asesor?' : '¿Restringir el acceso a este asesor? No podrá iniciar sesión.';
+  if (!confirm(msg)) return;
+  try {
+    await usuariosCol.doc(uid).update({ activo: nuevoEstado });
+    alert(nuevoEstado ? '✅ Acceso permitido exitosamente.' : '🔒 Acceso restringido exitosamente.');
+  } catch(e) {
+    alert('⚠️ No se pudo actualizar el estado: ' + (e.message || e));
+  }
+}
+
+async function eliminarAsesor(uid, correo) {
+  if (!confirm('¿Eliminar definitivamente al asesor ' + correo + '?\n\nEsta acción eliminará su registro de acceso de la base de datos.')) return;
+  try {
+    await usuariosCol.doc(uid).delete();
+    alert('✅ Asesor eliminado exitosamente de la base de datos.');
+  } catch(e) {
+    alert('⚠️ No se pudo eliminar: ' + (e.message || e));
+  }
+}
+
+function renderAdminAsesores(){
+  const el = document.getElementById('listaAsesores');
+  if(!el) return;
+  el.innerHTML = asesoresState.length ? asesoresState.map(a=>
+    `<div class="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+       <div class="min-w-0">
+         <p class="text-sm font-bold text-slate-900 truncate">${a.nombre} ${a.activo === false ? '<span class="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-md font-black">RESTRINGIDO</span>' : '<span class="text-[10px] bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-md font-black">ACTIVO</span>'}</p>
+         <p class="text-xs text-slate-500 truncate">${a.correo}</p>
+       </div>
+       <div class="flex items-center gap-2">
+         <button onclick="toggleRestringirAsesor('${a.uid}', ${a.activo !== false})" class="px-3 py-1.5 rounded-xl text-xs font-bold ${a.activo === false ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}">
+           ${a.activo === false ? '🔓 Permitir' : '🔒 Restringir'}
+         </button>
+         <button onclick="eliminarAsesor('${a.uid}','${a.correo}')" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100">
+           🗑️ Eliminar
+         </button>
+       </div>
+     </div>`).join('') : '<p class="text-sm text-slate-400 text-center py-4">Aún no has creado accesos para asesores</p>';
+}
+
+/* ================== AUTH ================== */
+async function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const pass = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('loginError');
+  const btn = document.getElementById('btnLogin');
+  errEl.classList.add('hidden');
+  if(!email || !pass){ errEl.textContent='Ingresa correo y contraseña.'; errEl.classList.remove('hidden'); return; }
+
+  btn.disabled = true; btn.textContent = 'Verificando…';
+
+  if (!navigator.onLine) {
+    if (isAdminEmail(email) && pass === getAdminPass(email)) {
+      user = { nombre: email === 'administrador@kchan.com' ? 'Administrador Principal' : 'Admin General', rol: 'admin', correo: email };
+      localStorage.setItem('tb_offline_user', JSON.stringify(user));
+      btn.disabled = false; btn.textContent = 'Iniciar sesión';
+      document.getElementById('login').classList.add('hidden');
+      const splash = document.getElementById('loginSplash');
+      splash.classList.add('show');
+      ['avatarSide','avatarMob'].forEach(i=>document.getElementById(i).textContent=user.nombre[0]);
+      document.getElementById('userNameSide').textContent = user.nombre;
+      document.getElementById('userRoleSide').textContent = 'Administrador (Modo Offline)';
+      document.getElementById('greetName').textContent = user.nombre.split(' ')[0];
+      document.getElementById('greetSub').textContent = 'Vista completa · Red K-CHAN (Offline)';
+      buildNav();
+      go('inicio');
+      setTimeout(()=>splash.classList.remove('show'), 1500);
+      return;
+    } else {
+      const cachedUsers = JSON.parse(localStorage.getItem('tb_cached_users') || '{}');
+      if (cachedUsers[email] && cachedUsers[email] === pass) {
+        user = { nombre: email.split('@')[0], rol: 'asesor', correo: email };
+        localStorage.setItem('tb_offline_user', JSON.stringify(user));
+        btn.disabled = false; btn.textContent = 'Iniciar sesión';
+        document.getElementById('login').classList.add('hidden');
+        const splash = document.getElementById('loginSplash');
+        splash.classList.add('show');
+        ['avatarSide','avatarMob'].forEach(i=>document.getElementById(i).textContent=user.nombre[0]);
+        document.getElementById('userNameSide').textContent = user.nombre;
+        document.getElementById('userRoleSide').textContent = 'Asesora comercial (Modo Offline)';
+        document.getElementById('greetName').textContent = user.nombre.split(' ')[0];
+        document.getElementById('greetSub').textContent = 'Todas las tiendas registradas · Red K-CHAN (Offline)';
+        buildNav();
+        go('inicio');
+        setTimeout(()=>splash.classList.remove('show'), 1500);
+        return;
+      }
+    }
+  }
+
+  try {
+    await auth.signInWithEmailAndPassword(email, pass);
+    const cachedUsers = JSON.parse(localStorage.getItem('tb_cached_users') || '{}');
+    cachedUsers[email] = pass;
+    localStorage.setItem('tb_cached_users', JSON.stringify(cachedUsers));
+  } catch(e){
+    const em = email.toLowerCase();
+    if (isAdminEmail(em) && pass === getAdminPass(em)){
+      user = { nombre: em === 'administrador@kchan.com' ? 'Administrador Principal' : 'Admin General', rol: 'admin', correo: em };
+      localStorage.setItem('tb_offline_user', JSON.stringify(user));
+      btn.disabled = false; btn.textContent = 'Iniciar sesión';
+      document.getElementById('login').classList.add('hidden');
+      const splash = document.getElementById('loginSplash');
+      splash.classList.add('show');
+      ['avatarSide','avatarMob'].forEach(i=>document.getElementById(i).textContent=user.nombre[0]);
+      document.getElementById('userNameSide').textContent = user.nombre;
+      document.getElementById('userRoleSide').textContent = 'Administrador (Modo Offline)';
+      document.getElementById('greetName').textContent = user.nombre.split(' ')[0];
+      document.getElementById('greetSub').textContent = 'Vista completa · Red K-CHAN (Offline)';
+      buildNav();
+      go('inicio');
+      setTimeout(()=>splash.classList.remove('show'), 1500);
+      return;
+    } else {
+      btn.disabled=false; btn.textContent='Iniciar sesión';
+      errEl.textContent = traducirError(e.code); errEl.classList.remove('hidden');
+      return;
+    }
+  }
+  btn.disabled=false; btn.textContent='Iniciar sesión';
+}
+
+auth.onAuthStateChanged(async (fbUser) => {
+  const errEl = document.getElementById('loginError');
+  if (!fbUser){
+    const offlineUser = localStorage.getItem('tb_offline_user');
+    if (offlineUser && !navigator.onLine) {
+      user = JSON.parse(offlineUser);
+      document.getElementById('login').classList.add('hidden');
+      const splash = document.getElementById('loginSplash');
+      splash.classList.add('show');
+      ['avatarSide','avatarMob'].forEach(i=>document.getElementById(i).textContent=user.nombre[0]);
+      document.getElementById('userNameSide').textContent = user.nombre;
+      document.getElementById('userRoleSide').textContent = user.rol==='admin' ? 'Administrador (Offline)' : 'Asesora comercial (Offline)';
+      document.getElementById('greetName').textContent = user.nombre.split(' ')[0];
+      document.getElementById('greetSub').textContent = user.rol==='admin' ? 'Vista completa · Red K-CHAN (Offline)' : 'Todas las tiendas registradas · Red K-CHAN (Offline)';
+      buildNav();
+      go('inicio');
+      setTimeout(()=>splash.classList.remove('show'), 1500);
+      return;
+    }
+    user = null; tiendas = []; asesoresState = [];
+    detachListeners();
+    document.getElementById('login').classList.remove('hidden');
+    document.getElementById('app').classList.add('hidden');
+    return;
+  }
+  localStorage.removeItem('tb_offline_user');
+  const email = (fbUser.email || '').toLowerCase();
+  let perfil;
+  if (isAdminEmail(email)){
+    perfil = {nombre: email === 'administrador@kchan.com' ? 'Administrador Principal' : 'Admin General', rol:'admin', correo:email};
+    try {
+      await usuariosCol.doc(fbUser.uid).set(perfil, {merge:true});
+    } catch(err) {
+      console.warn("Firestore write blocked by rules, proceeding as admin:", err);
+    }
+  } else {
+    try {
+      const snap = await usuariosCol.doc(fbUser.uid).get();
+      if (!snap.exists){
+        errEl.textContent = 'Tu cuenta no tiene acceso asignado. Contacta al administrador.';
+        errEl.classList.remove('hidden');
+        await auth.signOut();
+        return;
+      }
+      perfil = snap.data();
+      if (perfil.activo === false) {
+        errEl.textContent = 'Tu cuenta ha sido restringida por el administrador.';
+        errEl.classList.remove('hidden');
+        await auth.signOut();
+        return;
+      }
+    } catch(e){
+      console.error(e);
+      errEl.textContent = 'No se pudo verificar tu acceso: ' + traducirError(e.code);
+      errEl.classList.remove('hidden');
+      await auth.signOut();
+      return;
+    }
+  }
+
+  user = perfil;
+  const splash = document.getElementById('loginSplash');
+  document.getElementById('login').classList.add('hidden');
+  splash.classList.add('show');
+  ['avatarSide','avatarMob'].forEach(i=>document.getElementById(i).textContent=user.nombre[0]);
+  document.getElementById('userNameSide').textContent = user.nombre;
+  document.getElementById('userRoleSide').textContent = user.rol==='admin' ? 'Administrador' : 'Asesora comercial';
+  document.getElementById('greetName').textContent = user.nombre.split(' ')[0];
+  document.getElementById('greetSub').textContent = user.rol==='admin' ? 'Vista completa · Red K-CHAN' : 'Todas las tiendas registradas · Red K-CHAN';
+  buildNav();
+  attachListeners();
+  renderAll();
+  go('inicio');
+  setTimeout(()=>{
+    splash.classList.remove('show');
+    document.getElementById('app').classList.remove('hidden');
+    if(!map) initMap();
+  }, 1500);
+});
+
+function logout(){ document.getElementById('loginSplash').classList.remove('show'); auth.signOut().finally(()=>location.reload()); }
+
+/* ================== NAVEGACIÓN ================== */
+const NAV = [
+  {id:'inicio',label:'Inicio',icon:'M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1h3a1 1 0 001-1V10'},
+  {id:'tiendas',label:'Tiendas',icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5'},
+  {id:'mapa',label:'Mapa',icon:'M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z M12 10a3 3 0 100-6 3 3 0 000 6z'},
+  {id:'registrar',label:'Registrar',icon:'M12 5v14M5 12h14'},
+  {id:'agenda',label:'Agenda',icon:'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z'},
+];
+function buildNav(){
+  const items = user.rol==='admin'
+    ? [...NAV.filter(n=>n.id!=='registrar'), {id:'admin',label:'Admin',icon:'M12 2l7 4v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z'}]
+    : NAV;
+  const svg = (p,cls)=>`<svg class="${cls}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${p}"/></svg>`;
+  document.getElementById('sideNav').innerHTML = items.map(n=>
+    `<button class="navbtn w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-400 hover:bg-slate-800" data-nav="${n.id}" onclick="go('${n.id}')">${svg(n.icon,'')} ${n.label}</button>`).join('');
+  document.getElementById('bottomNav').innerHTML = items.map(n=>
+    `<button class="navbtn flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg text-[10px] font-semibold text-slate-500" data-nav="${n.id}" onclick="go('${n.id}')">${svg(n.icon,'')} ${n.label}</button>`).join('');
+  document.getElementById('fZona').innerHTML = ZONAS.map(z=>`<option>${z}</option>`).join('');
+}
+function go(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('scr-'+id).classList.add('active');
+  document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.nav===id));
+  if(id==='tiendas'){ renderVistaTiendas(); }
+  if(id==='mapa'){ setTimeout(()=>{ if(map) { map.invalidateSize(); drawMarkers(); } },150); }
+  if(id==='registrar'){ setTimeout(()=>{ if(!miniMap) initMiniMap(); if(miniMap) miniMap.invalidateSize(); },150); }
+  if(id==='agenda'){ renderFiltrosAgenda(); renderAgenda(); }
+  if(id==='admin'){ renderAdmin(); }
+}
+
+/* ================== HELPERS ================== */
+const misTiendas = ()=> tiendas;
+const fechaCorta = f => f ? new Date(f).toLocaleDateString('es-CO',{day:'numeric',month:'short'}) : '—';
+const dot = e => `<span class="estado-dot" style="background:${ESTADOS[e].color}"></span>`;
+const badge = e => `<span class="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-tighter shadow-sm" style="background:${ESTADOS[e].color}15;color:${ESTADOS[e].color};border:1px solid ${ESTADOS[e].color}30">${dot(e)} ${ESTADOS[e].label}</span>`;
+
+/* ================== RENDER ================== */
+function renderAll(){ tiendas = tiendas.map(normalizarTienda); save(); renderInicio(); renderVistaTiendas(); renderFiltros(); renderFiltrosAgenda(); renderAgenda(); renderAdmin(); drawMarkers(); }
+
+function renderVistaTiendas() {
+  const container = document.getElementById('gridTiendasVista');
+  const countEl = document.getElementById('cntTiendasVista');
+  const selAsesorEl = document.getElementById('fFiltroAsesor');
+  if (!container) return;
+
+  const asesoresDisponibles = [...new Set([
+    ...tiendas.map(t => (t.asesor || '').trim()).filter(Boolean),
+    ...asesoresState.map(a => (a.nombre || '').trim()).filter(Boolean)
+  ])].sort();
+
+  if (selAsesorEl) {
+    const valPrevio = selAsesorEl.value || 'todos';
+    selAsesorEl.innerHTML = `<option value="todos">Todos los asesores (${tiendas.length})</option>` +
+      asesoresDisponibles.map(a => {
+        const cant = tiendas.filter(t => (t.asesor || '').trim() === a).length;
+        return `<option value="${a}" ${valPrevio === a ? 'selected' : ''}>👤 ${a} (${cant})</option>`;
+      }).join('');
+  }
+
+  const query = (document.getElementById('fFiltroTexto')?.value || '').toLowerCase().trim();
+  const filtroAsesor = selAsesorEl?.value || 'todos';
+  const filtroTipo = document.getElementById('fFiltroTipo')?.value || 'todos';
+  const filtroEstado = document.getElementById('fFiltroEstado')?.value || 'todos';
+
+  const filtradas = tiendas.filter(t => {
+    if (filtroAsesor !== 'todos' && (t.asesor || '').trim() !== filtroAsesor) return false;
+    if (filtroTipo !== 'todos' && t.tipo !== filtroTipo) return false;
+    if (filtroEstado !== 'todos' && t.estado !== filtroEstado) return false;
+    if (query) {
+      const match = (t.nombre || '').toLowerCase().includes(query) ||
+                    (t.barrio || '').toLowerCase().includes(query) ||
+                    (t.dir || '').toLowerCase().includes(query) ||
+                    (t.zona || '').toLowerCase().includes(query) ||
+                    (t.asesor || '').toLowerCase().includes(query) ||
+                    (t.contacto || '').toLowerCase().includes(query);
+      if (!match) return false;
+    }
+    return true;
+  });
+
+  if (countEl) {
+    countEl.textContent = `Mostrando ${filtradas.length} de ${tiendas.length} tiendas`;
+  }
+
+  if (filtradas.length === 0) {
+    container.innerHTML = `
+      <div class="col-span-full py-16 text-center card bg-slate-50 border-dashed border-slate-200">
+        <p class="text-4xl mb-2">🏪</p>
+        <p class="text-slate-700 font-bold text-lg">No se encontraron tiendas</p>
+        <p class="text-slate-400 text-sm mt-1">Prueba cambiando los filtros de búsqueda o el asesor seleccionado.</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = filtradas.map(t => {
+    const seg = Array.isArray(t.seg) ? t.seg : [];
+    const ultimoSeg = seg.length ? seg[seg.length - 1] : null;
+
+    return `
+      <div class="card p-5 hover:shadow-xl transition-all duration-200 flex flex-col justify-between border-slate-200 group">
+        <div>
+          ${t.foto ? `<img src="${t.foto}" class="w-full h-36 object-cover rounded-xl mb-4 group-hover:opacity-95">` : ''}
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div>
+              <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block">${t.tipo || 'Sin tipo'} · ${t.zona || 'Sin zona'}</span>
+              <h4 class="font-black text-slate-900 text-lg group-hover:text-red-600 transition">${String(t.nombre || '').replace(/</g, '&lt;')}</h4>
+            </div>
+            ${badge(t.estado)}
+          </div>
+
+          <div class="space-y-1.5 my-3 text-xs text-slate-600 font-medium">
+            <p class="flex items-center gap-1.5"><span class="text-slate-400">👤 Asesor:</span> <strong class="text-slate-900">${t.asesor || 'Sin asesor'}</strong></p>
+            <p class="flex items-center gap-1.5"><span class="text-slate-400">📍 Barrio:</span> <span>${t.barrio || '—'} (${t.dir || 'Sin dirección'})</span></p>
+            ${t.contacto ? `<p class="flex items-center gap-1.5"><span class="text-slate-400">📞 Contacto:</span> <span>${t.contacto} ${t.tel ? '· ' + t.tel : ''}</span></p>` : ''}
+            ${ultimoSeg ? `<p class="flex items-center gap-1.5 text-slate-500 bg-slate-50 p-2 rounded-lg mt-2"><span>💬 Gestión:</span> <span class="truncate">${fechaCorta(ultimoSeg.fecha)} - ${ultimoSeg.notas || ultimoSeg.tipo}</span></p>` : ''}
+          </div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 mt-2">
+          <button onclick="abrirTienda('${t.id}')" class="px-3 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition flex-1 text-center">
+            💬 Ver / Gestión
+          </button>
+          <button onclick="editarTienda('${t.id}')" class="p-2 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 transition text-xs font-bold" title="Editar">
+            ✏️
+          </button>
+          <button onclick="eliminarTienda('${t.id}')" class="p-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 transition text-xs font-bold" title="Eliminar">
+            🗑️
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function filtrarTiendasPorEstado(estado) {
+  const el = document.getElementById('fFiltroEstado');
+  if (el) {
+    el.value = estado;
+  }
+  go('tiendas');
+  renderVistaTiendas();
+}
+
+function renderInicio(){
+  const T = misTiendas();
+  document.getElementById('statCards').innerHTML =
+    `<div class="card p-5 border-l-4 border-l-slate-200 cursor-pointer hover:shadow-lg transition transform hover:-translate-y-0.5" onclick="filtrarTiendasPorEstado('todos')"><p class="text-3xl font-black text-slate-900">${T.length}</p><p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Tiendas ➔</p></div>
+     <div class="card p-5 border-l-4 border-l-blue-500 cursor-pointer hover:shadow-lg transition transform hover:-translate-y-0.5" onclick="filtrarTiendasPorEstado('nueva')"><p class="text-3xl font-black text-blue-600">${T.filter(t=>t.estado==='nueva').length}</p><p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Nuevas ➔</p></div>
+     <div class="card p-5 border-l-4 border-l-orange-500 cursor-pointer hover:shadow-lg transition transform hover:-translate-y-0.5" onclick="filtrarTiendasPorEstado('negociacion')"><p class="text-3xl font-black text-orange-600">${T.filter(t=>t.estado==='negociacion').length}</p><p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Negociación ➔</p></div>
+     <div class="card p-5 border-l-4 border-l-green-500 cursor-pointer hover:shadow-lg transition transform hover:-translate-y-0.5" onclick="filtrarTiendasPorEstado('cliente')"><p class="text-3xl font-black text-green-600">${T.filter(t=>t.estado==='cliente').length}</p><p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Clientes ➔</p></div>`;
+  const prox = T.filter(t=>t.fecha && new Date(t.fecha) > new Date()).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha)).slice(0,4);
+  document.getElementById('proxVisitas').innerHTML = prox.length ? prox.map(t=>
+    `<div class="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 cursor-pointer hover:bg-white hover:shadow-md transition" onclick="abrirTienda('${t.id}')">
+       <div class="text-center px-3 py-2 rounded-xl bg-red-600 text-white shadow-sm"><p class="text-[10px] font-black uppercase opacity-80">${new Date(t.fecha).toLocaleDateString('es-CO',{month:'short'})}</p><p class="text-xl font-black leading-none">${new Date(t.fecha).getDate()}</p></div>
+       <div class="flex-1 min-w-0"><p class="text-sm font-bold text-slate-900 truncate">${t.nombre}</p><p class="text-xs text-slate-500 truncate">${t.zona} · ${t.barrio}</p></div>${badge(t.estado)}
+     </div>`).join('') : '<p class="text-sm text-slate-400 py-4 text-center">Sin visitas pendientes 🎉</p>';
+  const ult = [...T].sort((a,b)=>(b.id)-(a.id)).slice(0,4);
+  document.getElementById('ultRegistros').innerHTML = ult.map(t=>
+    `<div class="flex items-center gap-4 p-4 rounded-2xl border border-slate-100 cursor-pointer hover:bg-slate-50 transition" onclick="abrirTienda('${t.id}')">
+       <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl bg-slate-100">${t.tipo.includes('Ferreter')?'🔧':(t.tipo.includes('Verdur')||t.tipo.includes('Verdul'))?'🥬':t.tipo.includes('Panader')?'🥖':t.tipo.includes('Papeler')?'📝':t.tipo.includes('Superm')?'🛒':'🏪'}</div>
+       <div class="flex-1 min-w-0"><p class="text-sm font-bold text-slate-900 truncate">${t.nombre}</p><p class="text-xs text-slate-500">${t.zona} · ${fechaCorta(t.fecha)}</p></div>${badge(t.estado)}
+     </div>`).join('');
+}
+
+function renderFiltros(){
+  const opts = [['todos','Todas'],...Object.entries(ESTADOS).map(([k,v])=>[k,v.label])];
+  const el = document.getElementById('filtrosEstado');
+  if(!el) return;
+  el.innerHTML = opts.map(([k,l])=>
+    `<button class="chip ${filtroEstado===k?'on':''}" onclick="filtroEstado='${k}';renderFiltros();drawMarkers()">${l}</button>`).join('');
+  document.getElementById('leyenda').innerHTML = Object.entries(ESTADOS).map(([k,v])=>
+    `<span class="inline-flex items-center gap-2"><span class="estado-dot" style="background:${v.color}"></span><span class="text-slate-600 font-medium">${v.label}</span></span>`).join('');
+  document.getElementById('mapaSub').textContent = 'Todas las tiendas registradas en Bogotá';
+}
+
+function renderFiltrosAgenda(){
+  const opts = [['todos','Todas'],...Object.entries(ESTADOS).map(([k,v])=>[k,v.label])];
+  const el = document.getElementById('filtrosAgenda');
+  if(!el) return;
+  el.innerHTML = opts.map(([k,l])=>
+    `<button class="chip ${filtroAgenda===k?'on':''}" onclick="filtroAgenda='${k}';renderFiltrosAgenda();renderAgenda()">${l}</button>`).join('');
+}
+
+function renderAgenda(){
+  let T = misTiendas().filter(t=>t.fecha).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+  if(filtroAgenda !== 'todos') T = T.filter(t => t.estado === filtroAgenda);
+
+  document.getElementById('listaAgenda').innerHTML = T.length ? T.map(t=>{
+    const d = new Date(t.fecha);
+    return `<div class="flex items-center gap-4 p-4 rounded-xl hover:bg-slate-50 border-b border-slate-100 cursor-pointer transition" onclick="abrirTienda('${t.id}')">
+      <div class="text-center px-4 py-2 rounded-xl bg-slate-100 border border-slate-200 min-w-[64px]"><p class="text-xl font-black text-slate-900 leading-none">${d.getDate()}</p><p class="text-[10px] text-slate-500 font-black uppercase tracking-tighter">${d.toLocaleDateString('es-CO',{month:'short'})}</p></div>
+      <div class="flex-1 min-w-0"><p class="text-sm font-bold text-slate-900">${t.nombre}</p><p class="text-xs text-slate-500">${t.dir} · ${t.zona}</p><p class="text-xs text-slate-400 mt-1 font-medium italic">🕐 ${d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})} ${user.rol==='admin'?'· '+t.asesor:''}</p></div>
+      ${badge(t.estado)}
+    </div>`;}).join('') : '<p class="text-sm text-slate-400 p-8 text-center">No hay visitas agendadas con este filtro</p>';
+}
+
+/* ================== REPORTE EJECUTIVO (Excel / Google Sheets) ================== */
+function construirReporteWorkbook() {
+  const resLabel = {cliente_activo:'Cliente activo 🟢', interesado:'Interesado ✅', no_interesado:'No interesado ❌', visitar_despues:'Visitar después 🗓️', sin_respuesta:'Sin respuesta'};
+  const hoy = new Date();
+  const totalTiendas = tiendas.length || 1;
+
+  // 1. KPIs Globales
+  const totalClientes = tiendas.filter(t=>t.estado==='cliente').length;
+  const totalNegociacion = tiendas.filter(t=>t.estado==='negociacion').length;
+  const totalNuevas = tiendas.filter(t=>t.estado==='nueva').length;
+  const totalContactadas = tiendas.filter(t=>t.estado==='contactada').length;
+  const totalVisitarDespues = tiendas.filter(t=>t.estado==='visitar_despues').length;
+  const totalRechazadas = tiendas.filter(t=>t.estado==='rechazada').length;
+  const totalSeguimientos = tiendas.reduce((a,t)=>a+(Array.isArray(t.seg)?t.seg.length:0), 0);
+
+  const kpisEjecutivos = [
+    { Indicador: 'EMPRESA / ORGANIZACIÓN', Valor: 'K-CHAN ASESORES', Porcentaje: '100%' },
+    { Indicador: 'FECHA DE EMISIÓN', Valor: hoy.toLocaleString('es-CO'), Porcentaje: '-' },
+    { Indicador: 'ÁMBITO GEOGRÁFICO', Valor: 'ZONA METROPOLITANA Y BOGOTÁ D.C.', Porcentaje: '-' },
+    { Indicador: '', Valor: '', Porcentaje: '' },
+    { Indicador: '--- METRICAS CLAVE DE PERFORMANCE (KPIs) ---', Valor: '', Porcentaje: '' },
+    { Indicador: 'Total Puntos de Venta Registrados', Valor: tiendas.length, Porcentaje: '100%' },
+    { Indicador: 'Clientes Efectivos (Convertidos)', Valor: totalClientes, Porcentaje: `${((totalClientes/totalTiendas)*100).toFixed(1)}%` },
+    { Indicador: 'En Proceso de Negociación', Valor: totalNegociacion, Porcentaje: `${((totalNegociacion/totalTiendas)*100).toFixed(1)}%` },
+    { Indicador: 'Prospecciones / Puntos Nuevos', Valor: totalNuevas, Porcentaje: `${((totalNuevas/totalTiendas)*100).toFixed(1)}%` },
+    { Indicador: 'En Seguimiento / Contactados', Valor: totalContactadas + totalVisitarDespues, Porcentaje: `${(((totalContactadas+totalVisitarDespues)/totalTiendas)*100).toFixed(1)}%` },
+    { Indicador: 'Puntos Rechazados / No Interesados', Valor: totalRechazadas, Porcentaje: `${((totalRechazadas/totalTiendas)*100).toFixed(1)}%` },
+    { Indicador: 'Total Interacciones / Seguimientos Realizados', Valor: totalSeguimientos, Porcentaje: '-' },
+    { Indicador: 'Promedio de Interacciones por Punto de Venta', Valor: (totalSeguimientos/totalTiendas).toFixed(2), Porcentaje: '-' },
+  ];
+
+  // 2. Desglose Porcentual por Estado de Negocio
+  const filasEstados = Object.entries(ESTADOS).map(([k,v])=>{
+    const cantidad = tiendas.filter(t=>t.estado===k).length;
+    return {
+      'Estado Comercial': v.label,
+      'Clave Interna': k,
+      'Cantidad Puntos': cantidad,
+      'Participación Porcentual': `${((cantidad/totalTiendas)*100).toFixed(1)}%`
+    };
+  });
+
+  // 3. Matriz Dinámica: Tipo de Negocio vs Zona
+  const tiposNegocio = ['Tienda de barrio','Ferretería','Verdurería','Panadería','Papelería','Supermercados'];
+  const zonasUnicas = [...new Set(tiendas.map(t=>t.zona).filter(Boolean))].sort();
+
+  const matrizDinamica = zonasUnicas.map(zona => {
+    const tiendasZona = tiendas.filter(t => t.zona === zona);
+    const totalZona = tiendasZona.length || 1;
+    const fila = { 'Zona / Localidad': zona, 'Total Tiendas': tiendasZona.length };
+
+    tiposNegocio.forEach(tipo => {
+      const cant = tiendasZona.filter(t => t.tipo === tipo).length;
+      fila[`${tipo} (Cant)`] = cant;
+      fila[`${tipo} (%)`] = `${((cant/totalZona)*100).toFixed(1)}%`;
+    });
+    return fila;
+  });
+
+  // 4. Master Data completa de tiendas
+  const filasTiendas = tiendas.map(t => ({
+    'ID Único': t.id,
+    'Nombre Comercial': t.nombre,
+    'Categoría de Negocio': t.tipo,
+    'Asesor Responsable': t.asesor || 'Sin asignar',
+    'Estado en Pipeline': ESTADOS[t.estado]?.label || t.estado,
+    'Zona / Localidad': t.zona,
+    'Barrio': t.barrio,
+    'Dirección': t.dir,
+    'Persona de Contacto': t.contacto || 'N/A',
+    'Teléfono': t.tel || 'N/A',
+    'Latitud GPS': t.lat,
+    'Longitud GPS': t.lng,
+    'Fecha de Registro / Agendamiento': t.fecha ? new Date(t.fecha).toLocaleString('es-CO') : 'Sin fecha',
+    'Total Seguimientos': (Array.isArray(t.seg) ? t.seg : []).length,
+    'Última Interacción': (Array.isArray(t.seg) && t.seg.length) ? new Date(t.seg[t.seg.length - 1].fecha).toLocaleDateString('es-CO') : 'Ninguna',
+    'Observaciones Ejecutivas': t.notas || '',
+    'Evidencia Fotográfica': t.foto ? 'Disponible' : 'No registra'
+  }));
+
+  // 5. Histórico detallado de seguimientos
+  const filasSeg = [];
+  tiendas.forEach(t => {
+    (Array.isArray(t.seg) ? t.seg : []).forEach(s => {
+      filasSeg.push({
+        'Punto de Venta': t.nombre,
+        'Asesor Responsable': t.asesor,
+        'Zona': t.zona,
+        'Fecha de Interacción': s.fecha ? new Date(s.fecha).toLocaleDateString('es-CO') : '',
+        'Canal / Tipo Contacto': s.tipo,
+        'Resultado de Gestión': resLabel[s.res] || s.res,
+        'Notas de Campo': s.notas || ''
+      });
+    });
+  });
+  if (!filasSeg.length) {
+    filasSeg.push({
+      'Punto de Venta': '—',
+      'Asesor Responsable': '—',
+      'Zona': '—',
+      'Fecha de Interacción': '—',
+      'Canal / Tipo Contacto': '—',
+      'Resultado de Gestión': 'Sin interacciones registradas',
+      'Notas de Campo': ''
+    });
+  }
+
+  const wb = XLSX.utils.book_new();
+  const wsResumen = XLSX.utils.json_to_sheet(kpisEjecutivos);
+  wsResumen['!cols'] = [{wch:42}, {wch:28}, {wch:18}];
+
+  const wsEstados = XLSX.utils.json_to_sheet(filasEstados);
+  wsEstados['!cols'] = [{wch:26}, {wch:18}, {wch:16}, {wch:24}];
+
+  const wsMatriz = XLSX.utils.json_to_sheet(matrizDinamica);
+  wsMatriz['!cols'] = [{wch:22}, {wch:14}, {wch:16}, {wch:14}, {wch:16}, {wch:14}, {wch:16}, {wch:14}, {wch:16}, {wch:14}, {wch:16}, {wch:14}];
+
+  const wsTiendas = XLSX.utils.json_to_sheet(filasTiendas);
+  wsTiendas['!cols'] = [{wch:14}, {wch:28}, {wch:20}, {wch:20}, {wch:18}, {wch:16}, {wch:18}, {wch:28}, {wch:20}, {wch:16}, {wch:12}, {wch:12}, {wch:22}, {wch:18}, {wch:18}, {wch:35}, {wch:18}];
+
+  const wsSeg = XLSX.utils.json_to_sheet(filasSeg);
+  wsSeg['!cols'] = [{wch:28}, {wch:20}, {wch:16}, {wch:18}, {wch:18}, {wch:22}, {wch:40}];
+
+  XLSX.utils.book_append_sheet(wb, wsResumen, '1_KPIs_Ejecutivos');
+  XLSX.utils.book_append_sheet(wb, wsEstados, '2_Porcentajes_Pipeline');
+  XLSX.utils.book_append_sheet(wb, wsMatriz, '3_Matriz_Categorias');
+  XLSX.utils.book_append_sheet(wb, wsTiendas, '4_MasterData_Tiendas');
+  XLSX.utils.book_append_sheet(wb, wsSeg, '5_Auditoria_Seguimientos');
+
+  return wb;
+}
+
+function descargarReporte(){
+  if (typeof XLSX === 'undefined'){ alert('No se pudo cargar el módulo de Excel. Revisa tu conexión.'); return; }
+  if (!tiendas.length){ alert('Todavía no hay tiendas registradas para reportar.'); return; }
+
+  try {
+    const wb = construirReporteWorkbook();
+    const hoy = new Date();
+    const fechaArchivo = hoy.toISOString().slice(0,10);
+    const nombreArchivo = `reporte-ejecutivo-${fechaArchivo}.xlsx`;
+
+    const datos = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+    const blob = new Blob([datos], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    enlace.style.position = 'fixed';
+    enlace.style.left = '-9999px';
+    enlace.style.width = '1px';
+    enlace.style.height = '1px';
+    document.body.appendChild(enlace);
+    enlace.click();
+
+    setTimeout(() => {
+      enlace.remove();
+      URL.revokeObjectURL(url);
+    }, 10000);
+  } catch(e) {
+    if (e && e.name === 'AbortError') return;
+    console.error('Error generando/descargando reporte:', e);
+    alert('No se pudo descargar el reporte: ' + (e.message || e));
+  }
+}
+
+function descargarReportePDF() {
+  if (!tiendas.length) {
+    alert('Todavía no hay tiendas registradas para generar el informe PDF.');
+    return;
+  }
+  window.print();
+}
+
+const DEFAULT_GSHEET_URL = "https://script.google.com/macros/s/AKfycbxDzROXK9jN65YsrktcACRGZJ3H1Hpx5z_doXAerTy2gp9kAuKIWfSIxyKNQNLgYOpd/exec";
+
+function guardarGsheetUrl(){
+  const url = document.getElementById('gsheetUrl')?.value?.trim() || DEFAULT_GSHEET_URL;
+  localStorage.setItem('tb_gsheet_url', url);
+  alert('✅ URL de Google Sheets guardada.');
+}
+
+async function sincronizarGoogleSheets(){
+  const url = localStorage.getItem('tb_gsheet_url') || document.getElementById('gsheetUrl')?.value?.trim() || DEFAULT_GSHEET_URL;
+  if(!url){ alert('La URL de Google Sheets no es válida.'); return; }
+  if(!tiendas.length){ alert('No hay tiendas para sincronizar.'); return; }
+
+  setSyncStatus('🔄 Sincronizando con Google Sheets…', '#eab308');
+  try {
+    const totalTiendas = tiendas.length || 1;
+    const totalClientes = tiendas.filter(t=>t.estado==='cliente').length;
+    const totalNegociacion = tiendas.filter(t=>t.estado==='negociacion').length;
+    const totalNuevas = tiendas.filter(t=>t.estado==='nueva').length;
+    const totalRechazadas = tiendas.filter(t=>t.estado==='rechazada').length;
+
+    const payload = {
+      empresa: 'K-CHAN ASESORES',
+      fechaEmision: new Date().toLocaleString('es-CO'),
+      kpis: [
+        { Indicador: 'Total Puntos Registrados', Cantidad: tiendas.length, Porcentaje: '100%' },
+        { Indicador: 'Clientes Convertidos (Efectivos)', Cantidad: totalClientes, Porcentaje: `${((totalClientes/totalTiendas)*100).toFixed(1)}%` },
+        { Indicador: 'En Negociación', Cantidad: totalNegociacion, Porcentaje: `${((totalNegociacion/totalTiendas)*100).toFixed(1)}%` },
+        { Indicador: 'Puntos Nuevos', Cantidad: totalNuevas, Porcentaje: `${((totalNuevas/totalTiendas)*100).toFixed(1)}%` },
+        { Indicador: 'Puntos Rechazados', Cantidad: totalRechazadas, Porcentaje: `${((totalRechazadas/totalTiendas)*100).toFixed(1)}%` }
+      ],
+      tiendas: tiendas.map(t=>({
+        ID: t.id,
+        Nombre: t.nombre,
+        Tipo: t.tipo,
+        Asesor: t.asesor || 'Sin asignar',
+        Estado: ESTADOS[t.estado]?.label || t.estado,
+        Zona: t.zona,
+        Barrio: t.barrio,
+        Direccion: t.dir,
+        Contacto: t.contacto || 'N/A',
+        Telefono: t.tel || 'N/A',
+        Latitud: t.lat,
+        Longitud: t.lng,
+        Fecha: t.fecha || '',
+        Notas: t.notas || ''
+      }))
+    };
+
+    await fetch(url, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    setSyncStatus('☁️ Sincronizado', '#22c55e');
+    alert('✅ ¡Reporte sincronizado exitosamente con tu Google Sheet!');
+  } catch(e) {
+    console.error('Error sincronizando con Google Sheets:', e);
+    setSyncStatus('⚠️ Error GSheet', '#ef4444');
+    alert('No se pudo sincronizar con Google Sheets: ' + (e.message || e));
+  }
+}
+
+function enviarReportePorCorreo(){
+  const emailInput = document.getElementById('emailDestino');
+  const emailDestino = emailInput?.value?.trim() || '';
+
+  if (!emailDestino) {
+    alert('Ingresa la dirección de correo electrónico a la que deseas enviar el reporte.');
+    return;
+  }
+
+  if (!emailDestino.includes('@') || !emailDestino.includes('.')) {
+    alert('Por favor ingresa un correo electrónico válido (ejemplo@empresa.com).');
+    return;
+  }
+
+  if (!tiendas.length) {
+    alert('Todavía no hay tiendas registradas para enviar en el reporte.');
+    return;
+  }
+
+  if (typeof XLSX === 'undefined') {
+    alert('No se pudo cargar el módulo de Excel. Revisa tu conexión.');
+    return;
+  }
+
+  try {
+    const wb = construirReporteWorkbook();
+    const hoy = new Date();
+    const fechaArchivo = hoy.toISOString().slice(0,10);
+    const nombreArchivo = `reporte-ejecutivo-${fechaArchivo}.xlsx`;
+
+    const datos = XLSX.write(wb, {bookType:'xlsx', type:'base64'});
+    const base64data = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + datos;
+
+    // 1. Si estamos en Android, invocamos el cliente de correo nativo (Gmail, Outlook, Yahoo) con el Excel adjunto
+    if (window.AndroidDownloadBridge && typeof window.AndroidDownloadBridge.sendEmailWithAttachment === 'function') {
+      window.AndroidDownloadBridge.sendEmailWithAttachment(
+        base64data,
+        nombreArchivo,
+        emailDestino,
+        `📊 Reporte Ejecutivo - K-CHAN ASESORES (${fechaArchivo})`
+      );
+    } else {
+      // 2. Si estamos en navegador Web, descargamos el archivo y abrimos mailto pre-diligenciado
+      descargarReporte();
+      const mailtoUrl = `mailto:${encodeURIComponent(emailDestino)}?subject=${encodeURIComponent('📊 Reporte Ejecutivo - K-CHAN ASESORES')}&body=${encodeURIComponent('Adjunto el reporte consolidado en Excel.')}`;
+      window.open(mailtoUrl, '_blank');
+    }
+
+    // 3. Notificar sincronización con Google Sheets si está configurada
+    sincronizarGoogleSheets().catch(() => {});
+  } catch(e) {
+    console.error('Error enviando reporte por correo:', e);
+    alert('No se pudo enviar el reporte por correo: ' + (e.message || e));
+  }
+}
+
+/* ================== ADMIN TABS & CATALOG ================== */
+function switchAdminTab(tab){
+  const btnStats = document.getElementById('btnTabStats');
+  const btnCat = document.getElementById('btnTabCatalog');
+  const vStats = document.getElementById('adminViewStats');
+  const vCat = document.getElementById('adminViewCatalog');
+
+  if (tab === 'stats') {
+    btnStats.className = "px-4 py-2 font-bold text-sm rounded-xl bg-red-600 text-white shadow-sm";
+    btnCat.className = "px-4 py-2 font-bold text-sm rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200";
+    vStats.classList.remove('hidden');
+    vCat.classList.add('hidden');
+  } else {
+    btnCat.className = "px-4 py-2 font-bold text-sm rounded-xl bg-red-600 text-white shadow-sm";
+    btnStats.className = "px-4 py-2 font-bold text-sm rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200";
+    vCat.classList.remove('hidden');
+    vStats.classList.add('hidden');
+    renderAdminCatalog();
+  }
+}
+
+function renderAdminCatalog(){
+  const query = (document.getElementById('searchCatalog')?.value || '').toLowerCase().trim();
+  let list = tiendas;
+  if(query){
+    list = tiendas.filter(t=>
+      t.nombre.toLowerCase().includes(query) ||
+      t.zona.toLowerCase().includes(query) ||
+      t.barrio.toLowerCase().includes(query) ||
+      t.asesor.toLowerCase().includes(query) ||
+      t.tipo.toLowerCase().includes(query)
+    );
+  }
+
+  const catCountEl = document.getElementById('catCount');
+  if(catCountEl) catCountEl.textContent = `Mostrando ${list.length} de ${tiendas.length} tiendas`;
+
+  const grid = document.getElementById('adminCatalogGrid');
+  if(!grid) return;
+
+  grid.innerHTML = list.length ? list.map(t=>`
+    <div class="card overflow-hidden flex flex-col hover:shadow-lg transition cursor-pointer" onclick="abrirTienda('${t.id}')">
+      ${t.foto ? `<img src="${t.foto}" class="w-full h-40 object-cover">` : `<div class="w-full h-32 flex items-center justify-center text-4xl bg-slate-100">🏪</div>`}
+      <div class="p-4 flex-1 flex flex-col justify-between">
+        <div>
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <h4 class="font-bold text-slate-900 truncate">${t.nombre}</h4>
+            ${badge(t.estado)}
+          </div>
+          <p class="text-xs font-semibold text-slate-500 mb-1">${t.tipo} · ${t.barrio || 'Sin barrio'}</p>
+          <p class="text-xs text-slate-400 mb-3">📍 ${t.dir} (${t.zona})</p>
+          <p class="text-xs text-slate-500 font-medium">👤 Asesor: <span class="font-bold text-slate-700">${t.asesor || 'Sin asignar'}</span></p>
+        </div>
+        <div class="flex gap-2 mt-4 pt-3 border-t border-slate-100">
+          <button onclick="event.stopPropagation();abrirTienda('${t.id}')" class="flex-1 py-2 text-xs font-bold rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200">Ver Ficha</button>
+          <button onclick="event.stopPropagation();editarTienda('${t.id}')" class="py-2 px-3 text-xs font-bold rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100">✏️ Editar</button>
+          <button onclick="event.stopPropagation();eliminarTienda('${t.id}')" class="py-2 px-3 text-xs font-bold rounded-xl bg-red-50 text-red-600 hover:bg-red-100">🗑️</button>
+        </div>
+      </div>
+    </div>
+  `).join('') : '<div class="col-span-full py-12 text-center text-slate-400 font-medium">No se encontraron tiendas en el catálogo</div>';
+}
+
+function renderInformes3D() {
+  const printDateEl = document.getElementById('printDate');
+  if (printDateEl) printDateEl.textContent = new Date().toLocaleString('es-CO');
+
+  const total = tiendas.length;
+  if (total === 0) {
+    const c1 = document.getElementById('chartEstado3D');
+    if (c1) c1.innerHTML = '<p class="text-xs text-slate-400 py-8">Sin datos registrados</p>';
+    const c2 = document.getElementById('chartTipo3D');
+    if (c2) c2.innerHTML = '<p class="text-xs text-slate-400 py-8">Sin datos registrados</p>';
+    const l1 = document.getElementById('legendEstado3D');
+    if (l1) l1.innerHTML = '';
+    const l2 = document.getElementById('legendTipo3D');
+    if (l2) l2.innerHTML = '';
+    const t1 = document.getElementById('tableAsesoresStats');
+    if (t1) t1.innerHTML = '<tr><td colspan="5" class="text-center text-slate-400">Sin datos</td></tr>';
+    const t2 = document.getElementById('tableZonasStats');
+    if (t2) t2.innerHTML = '<tr><td colspan="3" class="text-center text-slate-400">Sin datos</td></tr>';
+    return;
+  }
+
+  const coloresGradientes = [
+    { start: '#f87171', main: '#ef4444', dark: '#991b1b' },
+    { start: '#60a5fa', main: '#3b82f6', dark: '#1e40af' },
+    { start: '#34d399', main: '#10b981', dark: '#065f46' },
+    { start: '#fbbf24', main: '#f59e0b', dark: '#b45309' },
+    { start: '#a78bfa', main: '#8b5cf6', dark: '#5b21b6' },
+    { start: '#f472b6', main: '#ec4899', dark: '#9d174d' },
+    { start: '#94a3b8', main: '#64748b', dark: '#1e293b' }
+  ];
+
+  // 1. Por Estado (Donut 3D Interactivo)
+  const estadosCount = {};
+  tiendas.forEach(t => {
+    const st = t.estado || 'prospecto';
+    estadosCount[st] = (estadosCount[st] || 0) + 1;
+  });
+
+  let acumulado = 0;
+  let svgEstado = `<svg viewBox="0 0 220 220" class="w-48 h-48 drop-shadow-[0_15px_25px_rgba(0,0,0,0.3)] overflow-visible" style="transform: rotate(-90deg);">
+    <defs>`;
+  let legendEstadoHtml = '';
+  let idx = 0;
+
+  for (const [key] of Object.entries(estadosCount)) {
+    const col = coloresGradientes[idx % coloresGradientes.length];
+    svgEstado += `<linearGradient id="gradEstado${idx}" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${col.start}"/>
+      <stop offset="50%" stop-color="${col.main}"/>
+      <stop offset="100%" stop-color="${col.dark}"/>
+    </linearGradient>`;
+    idx++;
+  }
+  svgEstado += `</defs>`;
+
+  acumulado = 0;
+  idx = 0;
+  for (const [key, count] of Object.entries(estadosCount)) {
+    const pct = count / total;
+    const col = coloresGradientes[idx % coloresGradientes.length];
+    const labelObj = ESTADOS[key] || { label: key };
+    const dashArray = `${pct * 565.48} 565.48`;
+    const dashOffset = -acumulado * 565.48;
+
+    svgEstado += `<circle cx="110" cy="110" r="85" fill="transparent" stroke="url(#gradEstado${idx})" stroke-width="42" stroke-dasharray="${dashArray}" stroke-dashoffset="${dashOffset}" class="cursor-pointer transition-all duration-300 hover:stroke-[48] hover:drop-shadow-[0_0_15px_${col.main}]" style="transform-origin: center;"></circle>`;
+
+    legendEstadoHtml += `<div class="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-100 shadow-sm cursor-pointer hover:bg-slate-50 transition" onmouseenter="this.style.transform='scale(1.03)'" onmouseleave="this.style.transform='scale(1)'">
+      <span class="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm" style="background:${col.main}"></span>
+      <div class="truncate"><p class="font-bold text-slate-800 text-[11px] truncate">${labelObj.label || key}</p><p class="text-[10px] text-slate-400 font-semibold">${count} (${(pct*100).toFixed(1)}%)</p></div>
+    </div>`;
+
+    acumulado += pct;
+    idx++;
+  }
+  svgEstado += `</svg>`;
+
+  const c1 = document.getElementById('chartEstado3D');
+  if (c1) {
+    c1.innerHTML = `<div class="relative flex items-center justify-center">${svgEstado}<div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center"><span class="text-2xl font-black text-slate-900">${total}</span><span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Tiendas</span></div></div>`;
+  }
+  const l1 = document.getElementById('legendEstado3D');
+  if (l1) l1.innerHTML = legendEstadoHtml;
+
+  // 2. Por Tipo de Negocio (Donut 3D Interactivo)
+  const tipoCount = {};
+  tiendas.forEach(t => {
+    const tp = t.tipo || 'Tienda de barrio';
+    tipoCount[tp] = (tipoCount[tp] || 0) + 1;
+  });
+
+  let svgTipo = `<svg viewBox="0 0 220 220" class="w-48 h-48 drop-shadow-[0_15px_25px_rgba(0,0,0,0.3)] overflow-visible" style="transform: rotate(-90deg);">
+    <defs>`;
+  let legendTipoHtml = '';
+  idx = 0;
+  for (const [key] of Object.entries(tipoCount)) {
+    const col = coloresGradientes[(idx + 2) % coloresGradientes.length];
+    svgTipo += `<linearGradient id="gradTipo${idx}" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${col.start}"/>
+      <stop offset="50%" stop-color="${col.main}"/>
+      <stop offset="100%" stop-color="${col.dark}"/>
+    </linearGradient>`;
+    idx++;
+  }
+  svgTipo += `</defs>`;
+
+  acumulado = 0;
+  idx = 0;
+  for (const [key, count] of Object.entries(tipoCount)) {
+    const pct = count / total;
+    const col = coloresGradientes[(idx + 2) % coloresGradientes.length];
+    const dashArray = `${pct * 565.48} 565.48`;
+    const dashOffset = -acumulado * 565.48;
+
+    svgTipo += `<circle cx="110" cy="110" r="85" fill="transparent" stroke="url(#gradTipo${idx})" stroke-width="42" stroke-dasharray="${dashArray}" stroke-dashoffset="${dashOffset}" class="cursor-pointer transition-all duration-300 hover:stroke-[48] hover:drop-shadow-[0_0_15px_${col.main}]" style="transform-origin: center;"></circle>`;
+
+    legendTipoHtml += `<div class="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-100 shadow-sm cursor-pointer hover:bg-slate-50 transition" onmouseenter="this.style.transform='scale(1.03)'" onmouseleave="this.style.transform='scale(1)'">
+      <span class="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm" style="background:${col.main}"></span>
+      <div class="truncate"><p class="font-bold text-slate-800 text-[11px] truncate">${key}</p><p class="text-[10px] text-slate-400 font-semibold">${count} (${(pct*100).toFixed(1)}%)</p></div>
+    </div>`;
+
+    acumulado += pct;
+    idx++;
+  }
+  svgTipo += `</svg>`;
+
+  const c2 = document.getElementById('chartTipo3D');
+  if (c2) {
+    c2.innerHTML = `<div class="relative flex items-center justify-center">${svgTipo}<div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center"><span class="text-2xl font-black text-slate-900">${total}</span><span class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Negocios</span></div></div>`;
+  }
+  const l2 = document.getElementById('legendTipo3D');
+  if (l2) l2.innerHTML = legendTipoHtml;
+
+  // 3. Tabla Resumen Asesores
+  const asesoresMap = {};
+  tiendas.forEach(t => {
+    const a = t.asesor || 'Sin asignar';
+    if (!asesoresMap[a]) asesoresMap[a] = { total: 0, cliente: 0, prospecto: 0 };
+    asesoresMap[a].total++;
+    if (t.estado === 'cliente') asesoresMap[a].cliente++;
+    else asesoresMap[a].prospecto++;
+  });
+
+  const t1 = document.getElementById('tableAsesoresStats');
+  if (t1) {
+    t1.innerHTML = Object.entries(asesoresMap).map(([asesor, data]) => {
+      const efectividad = ((data.cliente / data.total) * 100).toFixed(1);
+      return `<tr class="hover:bg-slate-50">
+        <td><span class="font-bold text-slate-900">${asesor}</span></td>
+        <td><span class="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-bold text-xs">${data.total}</span></td>
+        <td><span class="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 font-bold text-xs">${data.cliente}</span></td>
+        <td><span class="px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 font-bold text-xs">${data.prospecto}</span></td>
+        <td>
+          <div class="flex items-center gap-2">
+            <div class="flex-1 bg-slate-100 h-2 rounded-full overflow-hidden w-24">
+              <div class="bg-red-600 h-full rounded-full" style="width: ${efectividad}%"></div>
+            </div>
+            <span class="text-xs font-black text-slate-700">${efectividad}%</span>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // 4. Tabla Resumen Zonas
+  const zonasMap = {};
+  tiendas.forEach(t => {
+    const z = t.zona || 'Sin zona';
+    zonasMap[z] = (zonasMap[z] || 0) + 1;
+  });
+
+  const t2 = document.getElementById('tableZonasStats');
+  if (t2) {
+    t2.innerHTML = Object.entries(zonasMap).map(([zona, count]) => {
+      const pct = ((count / total) * 100).toFixed(1);
+      return `<tr class="hover:bg-slate-50">
+        <td><span class="font-bold text-slate-900">📍 ${zona}</span></td>
+        <td><span class="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-bold text-xs">${count} tiendas</span></td>
+        <td>
+          <div class="flex items-center gap-2">
+            <div class="flex-1 bg-slate-100 h-2 rounded-full overflow-hidden w-32">
+              <div class="bg-indigo-600 h-full rounded-full" style="width: ${pct}%"></div>
+            </div>
+            <span class="text-xs font-black text-slate-700">${pct}%</span>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+function renderAdmin(){
+  if(user.rol!=='admin') return;
+  renderAdminAsesores();
+  renderInformes3D();
+
+  const savedUrl = localStorage.getItem('tb_gsheet_url') || DEFAULT_GSHEET_URL;
+  const gsheetInput = document.getElementById('gsheetUrl');
+  if(gsheetInput) gsheetInput.value = savedUrl;
+
+  document.getElementById('adminStats').innerHTML =
+    `<div class="card p-5 border-t-4 border-t-red-600"><p class="text-3xl font-black text-slate-900">${tiendas.length}</p><p class="text-xs font-bold text-slate-500 uppercase tracking-widest">Total tiendas</p></div>
+     <div class="card p-5 border-t-4 border-t-slate-300"><p class="text-3xl font-black text-slate-900">${asesoresState.length}</p><p class="text-xs font-bold text-slate-500 uppercase tracking-widest">Asesores</p></div>
+     <div class="card p-5 border-t-4 border-t-slate-300"><p class="text-3xl font-black text-slate-900">${new Set(tiendas.map(t=>t.zona)).size}</p><p class="text-xs font-bold text-slate-500 uppercase tracking-widest">Zonas</p></div>
+     <div class="card p-5 border-t-4 border-t-green-600"><p class="text-3xl font-black text-green-600">${tiendas.filter(t=>t.estado==='cliente').length}</p><p class="text-xs font-bold text-slate-500 uppercase tracking-widest">Éxitos</p></div>`;
+  document.getElementById('adminTable').innerHTML = tiendas.map(t=>{
+    const seg = Array.isArray(t.seg) ? t.seg : [];
+    const last = seg.length ? seg[seg.length-1] : null;
+    return `<tr class="hover:bg-slate-50 transition" onclick="abrirTienda('${t.id}')">
+      <td><p class="font-bold text-slate-900">${t.nombre}</p><p class="text-xs text-slate-500">${t.tipo} · ${t.barrio || 'Sin barrio'}</p></td>
+      <td class="font-medium">${t.zona || '—'}</td><td class="font-medium">${t.asesor || 'Sin asesor'}</td><td>${badge(t.estado)}</td>
+      <td class="text-slate-500 text-xs">${last?fechaCorta(last.fecha)+' · '+last.tipo:'Sin seguimiento'}</td>
+      <td class="text-right"><button onclick="event.stopPropagation();eliminarTienda('${t.id}')" class="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-red-50 text-red-600 border border-red-100 text-xs font-black hover:bg-red-100">🗑️ Eliminar</button></td></tr>`;}).join('');
+  renderAdminCatalog();
+}
+
+/* ================== MAPA HD 3D FUTURISTA 2026 ================== */
+let currentTileLayer = null;
+let currentMapStyle = 'satellite';
+
+const MAP_STYLES = {
+  street: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+  topo: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+  satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+};
+
+function cambiarEstiloMapa(estilo) {
+  currentMapStyle = estilo;
+  ['Street', 'Topo', 'Sat'].forEach(s => {
+    const btn = document.getElementById('btnMap' + s);
+    if (btn) btn.className = "px-3 py-1.5 rounded-xl text-xs font-bold transition text-slate-600 hover:text-slate-900";
+  });
+  const activeBtn = estilo === 'street' ? 'Street' : estilo === 'topo' ? 'Topo' : 'Sat';
+  const el = document.getElementById('btnMap' + activeBtn);
+  if (el) el.className = "px-3 py-1.5 rounded-xl text-xs font-bold transition bg-white text-slate-900 shadow-sm";
+
+  if (map) {
+    if (currentTileLayer) map.removeLayer(currentTileLayer);
+    currentTileLayer = L.tileLayer(MAP_STYLES[estilo], {
+      maxZoom: 19,
+      attribution: '© ESRI © OpenStreetMap'
+    }).addTo(map);
+  }
+}
+
+let userMarker = null;
+let userAccuracyCircle = null;
+let watchId = null;
+
+function iniciarUbicacionEnTiempoReal() {
+  if (navigator.geolocation) {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+    }
+    watchId = navigator.geolocation.watchPosition(
+      pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const accuracy = pos.coords.accuracy;
+        const userLatLng = [lat, lng];
+
+        if (map) {
+          if (!userMarker) {
+            const userIcon = L.divIcon({
+              className: 'custom-user-location-marker',
+              html: `<div style="position:relative;width:32px;height:32px;"><div style="position:absolute;top:0;left:0;width:32px;height:32px;background:#3b82f6;border-radius:50%;opacity:0.4;animation:ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div><div style="position:absolute;top:6px;left:6px;width:20px;height:20px;background:#2563eb;border:3px solid white;border-radius:50%;box-shadow:0 0 12px rgba(0,0,0,0.5);"></div></div>`,
+              iconSize: [32, 32],
+              iconAnchor: [16, 16]
+            });
+            userMarker = L.marker(userLatLng, { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+            userMarker.bindPopup("<b>📍 Tu ubicación en tiempo real</b><br>Actualizada por GPS satelital");
+          } else {
+            userMarker.setLatLng(userLatLng);
+          }
+
+          if (!userAccuracyCircle) {
+            userAccuracyCircle = L.circle(userLatLng, {
+              radius: accuracy,
+              color: '#3b82f6',
+              fillColor: '#3b82f6',
+              fillOpacity: 0.15,
+              weight: 1
+            }).addTo(map);
+          } else {
+            userAccuracyCircle.setLatLng(userLatLng);
+            userAccuracyCircle.setRadius(accuracy);
+          }
+        }
+      },
+      err => {
+        console.warn("Geolocalización en tiempo real pendiente:", err);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 3000,
+        timeout: 10000
+      }
+    );
+  }
+}
+
+function centrarMiUbicacion() {
+  if (userMarker && map) {
+    map.setView(userMarker.getLatLng(), 16, { animate: true });
+    userMarker.openPopup();
+  } else if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      if (map) {
+        map.setView([lat, lng], 16, { animate: true });
+        iniciarUbicacionEnTiempoReal();
+      }
+    }, err => {
+      alert("No se pudo obtener tu ubicación actual. Verifica los permisos de GPS.");
+    }, { enableHighAccuracy: true });
+  } else {
+    alert("La geolocalización no está soportada en este navegador.");
+  }
+}
+
+function initMap(){
+  if (!document.getElementById('map')) return;
+  if (map) {
+    try { map.remove(); } catch(e){}
+    map = null;
+  }
+  userMarker = null;
+  userAccuracyCircle = null;
+  map = L.map('map', { zoomControl: true, attributionControl: false }).setView([4.65, -74.10], 12);
+  cambiarEstiloMapa(currentMapStyle);
+  drawMarkers();
+  iniciarUbicacionEnTiempoReal();
+}
+
+function getEmojiTipo(tipo) {
+  const t = (tipo || '').toLowerCase();
+  if (t.includes('ferreter')) return '🔧';
+  if (t.includes('verdur') || t.includes('verdul')) return '🥬';
+  if (t.includes('panader')) return '🥖';
+  if (t.includes('papeler')) return '📝';
+  if (t.includes('superm')) return '🛒';
+  return '🏪';
+}
+
+function drawMarkers(){
+  if (!map) return;
+  map.eachLayer(l => {
+    if (l instanceof L.Marker || l instanceof L.CircleMarker) map.removeLayer(l);
+  });
+
+  misTiendas().filter(t => filtroEstado === 'todos' || t.estado === filtroEstado).forEach(t => {
+    const estadoObj = ESTADOS[t.estado] || { label: t.estado, color: '#3b82f6' };
+    const emoji = getEmojiTipo(t.tipo);
+
+    const pinHtml = `
+      <div class="pin-3d-wrapper" style="--dot-color: ${estadoObj.color}">
+        <div class="pin-3d-card">
+          <span class="pin-3d-emoji">${emoji}</span>
+          <span class="pin-3d-title">${String(t.nombre).replace(/</g, '&lt;')}</span>
+        </div>
+        <div class="pin-3d-beacon"></div>
+        <div class="pin-3d-pulse"></div>
+      </div>`;
+
+    const customIcon = L.divIcon({
+      className: 'custom-3d-marker',
+      html: pinHtml,
+      iconSize: [130, 40],
+      iconAnchor: [65, 38]
+    });
+
+    const m = L.marker([t.lat, t.lng], { icon: customIcon }).addTo(map);
+
+    const popupHtml = `
+      <div class="p-3" style="min-width:210px">
+        <div class="flex items-center gap-2 mb-1.5">
+          <span class="text-xl">${emoji}</span>
+          <div>
+            <p style="font-weight:900;font-size:14px;color:#0f172a;margin:0;line-height:1.2">${String(t.nombre).replace(/</g, '&lt;')}</p>
+            <p style="font-size:11px;color:#64748b;margin:0">${t.tipo} · ${t.barrio || t.zona}</p>
+          </div>
+        </div>
+        <div class="my-2 pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+          <span style="font-size:10px;font-weight:900;color:${estadoObj.color}">● ${estadoObj.label}</span>
+          <span style="color:#64748b;font-size:11px">👤 ${t.asesor || 'Sin asesor'}</span>
+        </div>
+        <button onclick="abrirTienda('${t.id}')" style="width:100%;margin-top:6px;background:#0f172a;color:#fff;font-weight:800;font-size:11px;padding:7px;border-radius:10px;border:none;cursor:pointer">
+          💬 Ver Ficha / Gestión →
+        </button>
+      </div>`;
+
+    m.bindPopup(popupHtml);
+  });
+}
+
+let userCharacterMarker = null;
+
+function getUserGender() {
+  let g = localStorage.getItem('tb_user_gender');
+  if (g) return g;
+  const nombre = (user && user.nombre ? user.nombre : 'Asesor').trim().toLowerCase();
+  const primerNombre = nombre.split(' ')[0];
+  const excepcionesMasculinas = ['lucas', 'tomas', 'nicolas', 'matias', 'jonas', 'esdras', 'joshua', 'andres', 'carlos'];
+  if (excepcionesMasculinas.includes(primerNombre)) {
+    g = 'hombre';
+  } else if (primerNombre.endsWith('a') || primerNombre.endsWith('e') && !['vicente', 'felipe', 'jorge'].includes(primerNombre)) {
+    g = 'mujer';
+  } else {
+    g = 'hombre';
+  }
+  localStorage.setItem('tb_user_gender', g);
+  return g;
+}
+
+function updateUserCharacterOnMiniMap() {
+  if (!miniMap) return;
+  const gender = getUserGender(); // 'hombre' or 'mujer'
+  const latLng = gps ? [gps.lat, gps.lng] : [4.6510, -74.0950];
+
+  const htmlContent = gender === 'mujer'
+    ? `<div class="relative flex items-center justify-center group cursor-pointer" title="Asesora (Silueta Mujer 3D)">
+         <span class="animate-ping absolute inline-flex h-9 w-9 rounded-full bg-pink-400 opacity-75"></span>
+         <div class="relative w-9 h-9 rounded-2xl bg-gradient-to-br from-pink-600 to-rose-800 border-2 border-white shadow-2xl flex items-center justify-center text-white text-base transform hover:scale-110 transition-transform">👩‍💼</div>
+       </div>`
+    : `<div class="relative flex items-center justify-center group cursor-pointer" title="Asesor (Silueta Hombre 3D)">
+         <span class="animate-ping absolute inline-flex h-9 w-9 rounded-full bg-blue-400 opacity-75"></span>
+         <div class="relative w-9 h-9 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-800 border-2 border-white shadow-2xl flex items-center justify-center text-white text-base transform hover:scale-110 transition-transform">👨‍💼</div>
+       </div>`;
+
+  const icon = L.divIcon({
+    className: 'custom-user-character-marker',
+    html: htmlContent,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18]
+  });
+
+  if (userCharacterMarker) {
+    miniMap.removeLayer(userCharacterMarker);
+  }
+  userCharacterMarker = L.marker(latLng, { icon, zIndexOffset: 999 }).addTo(miniMap);
+}
+
+function createMiniMarker(coords) {
+  const icon = L.divIcon({
+    className: 'custom-3d-pin-mini',
+    html: `<div class="relative flex items-center justify-center">
+             <span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-red-400 opacity-75"></span>
+             <div class="relative w-8 h-8 rounded-full bg-red-600 border-2 border-white shadow-xl flex items-center justify-center text-white font-black text-xs">📍</div>
+           </div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16]
+  });
+  return L.marker(coords, { icon });
+}
+
+function initMiniMap(){
+  if (!document.getElementById('miniMap')) return;
+  if (miniMap) {
+    try { miniMap.remove(); } catch(e){}
+    miniMap = null;
+  }
+  userCharacterMarker = null;
+  const initialLat = gps ? gps.lat : 4.6510;
+  const initialLng = gps ? gps.lng : -74.0950;
+
+  miniMap = L.map('miniMap', { zoomControl: true, attributionControl: false }).setView([initialLat, initialLng], 13);
+
+  L.tileLayer(MAP_STYLES.satellite, {
+    maxZoom: 19,
+    attribution: '© ESRI © OpenStreetMap'
+  }).addTo(miniMap);
+
+  if (gps) {
+    miniMarker = createMiniMarker([gps.lat, gps.lng]).addTo(miniMap);
+  }
+  updateUserCharacterOnMiniMap();
+
+  miniMap.on('click', e => {
+    gps = { lat: e.latlng.lat, lng: e.latlng.lng };
+    if (miniMarker) miniMap.removeLayer(miniMarker);
+    miniMarker = createMiniMarker([gps.lat, gps.lng]).addTo(miniMap);
+    updateUserCharacterOnMiniMap();
+    updGPS();
+  });
+}
+
+function capturarGPS(){
+  const statusEl = document.getElementById('gpsTxt');
+  if (statusEl) statusEl.textContent = '🛰️ Obteniendo posición GPS del teléfono…';
+
+  const fin = pos => {
+    gps = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    if (!miniMap) initMiniMap();
+    if (miniMap) {
+      if (miniMarker) miniMap.removeLayer(miniMarker);
+      miniMarker = createMiniMarker([gps.lat, gps.lng]).addTo(miniMap);
+      updateUserCharacterOnMiniMap();
+      miniMap.setView([gps.lat, gps.lng], 16, { animate: true });
+    }
+    updGPS();
+    if (statusEl) statusEl.textContent = `✅ GPS capturado: ${gps.lat.toFixed(5)}, ${gps.lng.toFixed(5)}`;
+  };
+
+  const err = (error) => {
+    console.warn('GPS sin respuesta, buscando por dirección ingresada:', error);
+    const dir = document.getElementById('fDir')?.value?.trim();
+    if (dir) {
+      ubicarPorDireccion(false);
+    } else {
+      gps = { lat: 4.6510 + (Math.random() - .5) * .03, lng: -74.0950 + (Math.random() - .5) * .03 };
+      if (!miniMap) initMiniMap();
+      if (miniMap) {
+        if (miniMarker) miniMap.removeLayer(miniMarker);
+        miniMarker = createMiniMarker([gps.lat, gps.lng]).addTo(miniMap);
+        updateUserCharacterOnMiniMap();
+        miniMap.setView([gps.lat, gps.lng], 14, { animate: true });
+      }
+      updGPS();
+      if (statusEl) statusEl.textContent = '⚠️ Ingresa la dirección arriba o toca el mapa para fijar el pin exacto.';
+    }
+  };
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(fin, err, {
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 0
+    });
+  } else {
+    err(null);
+  }
+}
+
+async function ubicarPorDireccion(isEdit = false) {
+  const prefix = isEdit ? 'e' : 'f';
+  const dir = document.getElementById(prefix + 'Dir')?.value?.trim() || '';
+  const barrio = document.getElementById(prefix + 'Barrio')?.value?.trim() || '';
+  const zona = document.getElementById(prefix + 'Zona')?.value?.trim() || '';
+
+  if (!dir && !barrio) {
+    return;
+  }
+
+  if (!miniMap && !isEdit) {
+    initMiniMap();
+  }
+
+  const statusEl = document.getElementById(prefix + 'GpsTxt') || document.getElementById('gpsTxt');
+  if (statusEl) statusEl.textContent = '🔍 Buscando coordenadas exactas en el mapa…';
+
+  const dirLimpia = dir.replace(/#/g, ' ').replace(/\bN[oº°\.]+/gi, ' ').replace(/\s+/g, ' ').trim();
+
+  const intentos = [
+    `${dirLimpia}, ${barrio}, Bogotá, Colombia`,
+    `${dirLimpia}, Bogotá, Colombia`,
+    `${barrio}, ${zona}, Bogotá, Colombia`,
+    `${barrio}, Bogotá, Colombia`
+  ].filter(Boolean);
+
+  let lat = null, lng = null;
+
+  for (const q of intentos) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=co&limit=1`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        lat = parseFloat(data[0].lat);
+        lng = parseFloat(data[0].lon);
+        break;
+      }
+    } catch(e) {
+      console.warn('Geocodificación falló para:', q, e);
+    }
+  }
+
+  if (lat !== null && lng !== null) {
+    gps = { lat, lng };
+
+    if (!miniMap) initMiniMap();
+    if (miniMap) {
+      if (miniMarker) miniMap.removeLayer(miniMarker);
+      miniMarker = createMiniMarker([lat, lng]).addTo(miniMap);
+      updateUserCharacterOnMiniMap();
+      miniMap.setView([lat, lng], 16, { animate: true });
+    }
+    updGPS();
+    if (statusEl) statusEl.textContent = `📍 Ubicado en el mapa: ${lat.toFixed(5)}, ${lng.toFixed(5)} (puedes ajustar el pin tocándolo)`;
+  } else {
+    if (statusEl) statusEl.textContent = '⚠️ Dirección registrada. Toca el mapa para ubicar el pin manualmente.';
+  }
+}
+
+function updGPS(){
+  const statusEl = document.getElementById('gpsTxt');
+  if (statusEl && gps) {
+    statusEl.textContent = `✅ Ubicación fija: ${gps.lat.toFixed(5)}, ${gps.lng.toFixed(5)} (puedes ajustarla tocando el mapa)`;
+  }
+}
+
+/* ================== REGISTRAR ================== */
+function fotoCargada(inp){
+  const f = inp.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = e=>{ fotoData=e.target.result; document.getElementById('fotoTxt').innerHTML = `<span style="color:#38bdf8">📸 ${f.name} cargada</span>`; };
+  r.readAsDataURL(f);
+}
+async function guardarTienda(){
+  const v = id=>document.getElementById(id)?.value?.trim() || '';
+  if(!v('fNombre')||!v('fBarrio')||!v('fDir')){ alert('Completa al menos: nombre, barrio y dirección.'); return; }
+
+  let tipoFinal = v('fTipo');
+  if(tipoFinal === 'Otro'){
+    tipoFinal = v('fTipoOtro') || 'Otro';
+  }
+
+  try {
+    const pos = gps || {lat:4.65+(Math.random()-.5)*.08, lng:-74.10+(Math.random()-.5)*.08};
+
+    let fotoFinal = null;
+    if (fotoData) {
+        fotoFinal = await comprimirImagen(fotoData, 800, 0.7);
+    }
+
+    const nuevaTienda = {
+      id: String(Date.now()),
+      asesor:user.nombre,
+      nombre:v('fNombre'),
+      tipo:tipoFinal,
+      zona:v('fZona'),
+      barrio:v('fBarrio'),
+      dir:v('fDir'),
+      contacto:v('fContacto'),
+      tel:v('fTel'),
+      lat:pos.lat,
+      lng:pos.lng,
+      estado:'nueva',
+      notas:v('fNotas'),
+      fecha:v('fFecha')||null,
+      foto:fotoFinal,
+      seg:[]
+    };
+
+    tiendas.push(normalizarTienda(nuevaTienda));
+
+    try {
+        save();
+        await syncTienda(nuevaTienda);
+        alert('✅ Tienda registrada con éxito');
+
+        ['fNombre','fBarrio','fDir','fContacto','fTel','fNotas','fFecha','fTipoOtro'].forEach(i=>{
+            const el = document.getElementById(i);
+            if(el) el.value='';
+        });
+        document.getElementById('fTipo').value = 'Tienda de barrio';
+        toggleTipoOtro(document.getElementById('fTipo'), 'wrapFTipoOtro');
+        gps=null;
+        fotoData=null;
+        document.getElementById('fotoTxt').innerHTML='Toca para tomar foto o subir (Opcional)';
+        document.getElementById('gpsTxt').textContent='Sin ubicación capturada — el pin se coloca donde estés';
+        if(miniMarker && miniMap){ miniMap.removeLayer(miniMarker); miniMarker=null; }
+
+        go('mapa');
+    } catch (e) {
+        console.error("Storage error:", e);
+        alert('⚠️ No se pudo sincronizar. Revisa tu conexión.');
+        tiendas.pop();
+    }
+  } catch (e) {
+    console.error(e);
+    alert('Error al procesar: ' + e.message);
+  }
+}
+
+/* ================== FICHA + SEGUIMIENTO ================== */
+async function editarTienda(id){
+  try {
+    const targetId = String(id);
+    const t = tiendas.find(x => String(x.id) === targetId);
+    if(!t) { alert('No se encontró la tienda seleccionada para editar.'); return; }
+
+    const zonas = ZONAS.map(z=>`<option value="${z}" ${t.zona===z?'selected':''}>${z}</option>`).join('');
+    const estados = Object.entries(ESTADOS).map(([k,v])=>`<option value="${k}" ${t.estado===k?'selected':''}>${v.label}</option>`).join('');
+    const asesores = getListaAsesores(t.asesor);
+    const asesorOpts = asesores.map(a=>`<option value="${a}" ${t.asesor===a?'selected':''}>${a}</option>`).join('');
+
+    const esTipoStandard = ['Tienda de barrio','Ferretería','Verdurería','Panadería','Papelería','Supermercados'].includes(t.tipo) || t.tipo === 'Verdulería';
+    const tipoSel = (esTipoStandard) ? (t.tipo === 'Verdulería' ? 'Verdurería' : t.tipo) : 'Otro';
+    const tipoOtroVal = (esTipoStandard || t.tipo === 'Verdulería') ? '' : (t.tipo || '');
+
+    const modalEl = document.getElementById('modal');
+    const contentEl = document.getElementById('modalContent');
+    if(!contentEl) return;
+
+    contentEl.innerHTML = `
+      <div class="card overflow-hidden border-none shadow-2xl bg-white">
+        <div class="p-6">
+          <div class="flex items-center justify-between gap-4 mb-6">
+            <div><p class="text-xs font-black uppercase tracking-widest text-red-600">Editar tienda</p><h3 class="text-2xl font-black text-slate-900 mt-1">${String(t.nombre||'').replace(/</g,'&lt;')}</h3></div>
+            <button onclick="cerrarModal()" class="w-9 h-9 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 flex items-center justify-center font-bold">✕</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div><label>Nombre de la tienda *</label><input id="eNombre" value="${String(t.nombre||'').replace(/"/g,'&quot;')}" /></div>
+            <div><label>Tipo *</label>
+              <select id="eTipo" onchange="toggleTipoOtro(this, 'wrapETipoOtro')">
+                <option value="Tienda de barrio" ${tipoSel==='Tienda de barrio'?'selected':''}>Tienda de barrio</option>
+                <option value="Ferretería" ${tipoSel==='Ferretería'?'selected':''}>Ferretería</option>
+                <option value="Verdurería" ${tipoSel==='Verdurería'?'selected':''}>Verdurería</option>
+                <option value="Panadería" ${tipoSel==='Panadería'?'selected':''}>Panadería</option>
+                <option value="Papelería" ${tipoSel==='Papelería'?'selected':''}>Papelería</option>
+                <option value="Supermercados" ${tipoSel==='Supermercados'?'selected':''}>Supermercados</option>
+                <option value="Otro" ${tipoSel==='Otro'?'selected':''}>Otro</option>
+              </select>
+            </div>
+            <div id="wrapETipoOtro" class="${tipoSel==='Otro'?'':'hidden'} md:col-span-2">
+              <label>¿Cuál tipo de negocio? *</label>
+              <input id="eTipoOtro" value="${String(tipoOtroVal).replace(/"/g,'&quot;')}" placeholder="Ej: Carnicería, Papelería..." />
+            </div>
+            <div><label>Asesor</label><select id="eAsesor">${asesorOpts}</select></div>
+            <div><label>Estado</label><select id="eEstado">${estados}</select></div>
+            <div><label>Zona</label><select id="eZona">${zonas}</select></div>
+            <div><label>Barrio *</label><input id="eBarrio" value="${String(t.barrio||'').replace(/"/g,'&quot;')}" /></div>
+            <div class="md:col-span-2"><label>Dirección *</label><input id="eDir" value="${String(t.dir||'').replace(/"/g,'&quot;')}" /></div>
+            <div><label>Contacto</label><input id="eContacto" value="${String(t.contacto||'').replace(/"/g,'&quot;')}" /></div>
+            <div><label>Teléfono</label><input id="eTel" value="${String(t.tel||'').replace(/"/g,'&quot;')}" /></div>
+            <div><label>Fecha / próxima visita</label><input id="eFecha" type="datetime-local" value="${t.fecha||''}" /></div>
+            <div class="md:col-span-2"><label>Notas</label><textarea id="eNotas" rows="3">${String(t.notas||'').replace(/</g,'&lt;')}</textarea></div>
+          </div>
+          <div class="flex flex-wrap gap-3 mt-6">
+            <button onclick="guardarEdicionTienda('${t.id}')" class="btn-primary">💾 Guardar cambios</button>
+            <button onclick="cerrarModal()" class="px-5 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold">Cancelar</button>
+          </div>
+        </div>
+      </div>`;
+
+    modalEl.classList.remove('hidden');
+    modalEl.scrollTop = 0;
+    document.body.style.overflow='hidden';
+  } catch(err) {
+    console.error('Error en editarTienda:', err);
+    alert('Error al abrir la edición: ' + err.message);
+  }
+}
+
+async function guardarEdicionTienda(id){
+  const targetId = String(id);
+  const t = tiendas.find(x => String(x.id) === targetId);
+  if(!t) return;
+
+  const val = idd => document.getElementById(idd)?.value?.trim() || '';
+  if(!val('eNombre') || !val('eBarrio') || !val('eDir')){ alert('Completa nombre, barrio y dirección.'); return; }
+
+  let tipoFinal = val('eTipo');
+  if(tipoFinal === 'Otro'){
+    tipoFinal = val('eTipoOtro') || 'Otro';
+  }
+
+  const actualizado = normalizarTienda({
+    ...t,
+    nombre: val('eNombre'),
+    tipo: tipoFinal,
+    asesor: val('eAsesor') || t.asesor,
+    estado: val('eEstado') || t.estado,
+    zona: val('eZona'),
+    barrio: val('eBarrio'),
+    dir: val('eDir'),
+    contacto: val('eContacto'),
+    tel: val('eTel'),
+    fecha: val('eFecha') || null,
+    notas: val('eNotas')
+  });
+
+  try{
+    setSyncStatus('🔄 Guardando en la nube…','#eab308');
+    await syncTienda(actualizado);
+    cerrarModal();
+  }catch(e){
+    console.error('Error editando tienda:',e);
+    alert('No se pudieron guardar los cambios: ' + (e.message || e));
+  }
+}
+
+function abrirTienda(id){
+  try {
+    const targetId = String(id);
+    const t = tiendas.find(x => String(x.id) === targetId);
+    if(!t) { alert('No se encontró la tienda seleccionada.'); return; }
+
+    const resLabel = {cliente_activo:'Cliente activo 🟢',interesado:'Interesado ✅',no_interesado:'No interesado ❌',visitar_despues:'Visitar después 🗓️',sin_respuesta:'Sin respuesta'};
+    const mapsUrl = `geo:${t.lat},${t.lng}?q=${t.lat},${t.lng}(${encodeURIComponent(t.nombre)})`;
+
+    const modalEl = document.getElementById('modal');
+    const contentEl = document.getElementById('modalContent');
+    if(!contentEl) return;
+
+    contentEl.innerHTML = `
+    <div class="card overflow-hidden border-none shadow-2xl bg-white">
+      ${t.foto?`<img src="${t.foto}" class="w-full h-56 object-cover">`:`<div class="w-full h-32 flex items-center justify-center text-5xl bg-slate-100">🏪</div>`}
+      <div class="p-6">
+        <div class="flex items-start justify-between gap-4 mb-2">
+          <h3 class="text-xl font-black text-slate-900">${String(t.nombre||'').replace(/</g,'&lt;')}</h3>
+          <button onclick="cerrarModal()" class="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 transition font-bold">✕</button>
+        </div>
+        <p class="text-xs font-bold text-slate-500 mb-4 uppercase tracking-wider">${t.tipo} ${user.rol==='admin'?'· 👤 '+t.asesor:''}</p>
+        <div class="mb-6 flex flex-wrap gap-2">${badge(t.estado)}
+          <button onclick="window.location.href='${mapsUrl}'" class="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-tighter bg-sky-50 text-sky-600 border border-sky-200 shadow-sm">
+             📍 Cómo llegar (GPS)
+          </button>
+          <button onclick="editarTienda('${t.id}')" class="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-tighter bg-blue-50 text-blue-600 border border-blue-200 shadow-sm">✏️ Editar datos</button>
+          <button onclick="eliminarTienda('${t.id}')" class="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-tighter bg-red-50 text-red-600 border border-red-200 shadow-sm">🗑️ Eliminar tienda</button>
+        </div>
+        <div class="grid grid-cols-2 gap-4 text-sm mb-6">
+          <div class="p-4 rounded-2xl bg-slate-50 border border-slate-100"><p class="text-[10px] uppercase text-slate-400 font-black mb-1">Zona</p><p class="text-slate-900 font-bold">${t.zona}</p></div>
+          <div class="p-4 rounded-2xl bg-slate-50 border border-slate-100"><p class="text-[10px] uppercase text-slate-400 font-black mb-1">Barrio</p><p class="text-slate-900 font-bold">${t.barrio}</p></div>
+          <div class="p-4 rounded-2xl bg-slate-50 border border-slate-100 col-span-2"><p class="text-[10px] uppercase text-slate-400 font-black mb-1">Dirección</p><p class="text-slate-900 font-bold">${t.dir}</p></div>
+          <div class="p-4 rounded-2xl bg-slate-50 border border-slate-100"><p class="text-[10px] uppercase text-slate-400 font-black mb-1">Contacto</p><p class="text-slate-900 font-bold">${t.contacto||'—'}</p></div>
+          <div class="p-4 rounded-2xl bg-slate-50 border border-slate-100"><p class="text-[10px] uppercase text-slate-400 font-black mb-1">Teléfono</p><p class="text-slate-900 font-bold">${t.tel||'—'}</p></div>
+        </div>
+        ${t.notas?`<div class="p-4 rounded-2xl bg-red-50/50 border border-red-100 text-sm text-slate-700 mb-6">📝 <span class="font-medium">${String(t.notas).replace(/</g,'&lt;')}</span></div>`:''}
+        <div id="mapaFicha" style="height:200px;border-radius:20px" class="mb-8 border border-slate-200"></div>
+
+        <h4 class="font-black text-slate-900 mb-4 flex items-center gap-2">
+           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+           Historial de Seguimiento (${t.seg.length})
+        </h4>
+        <div class="mb-8">
+          ${t.seg.length ? [...t.seg].reverse().map(s=>`
+            <div class="tl-item"><span class="tl-dot" style="background:${ESTADOS[t.estado].color}"></span>
+              <p class="text-sm font-bold text-slate-900">${resLabel[s.res]||s.res} <span class="text-[10px] font-black text-slate-400 ml-2 uppercase tracking-tighter">${s.tipo} · ${fechaCorta(s.fecha)}</span></p>
+              ${s.notas?`<p class="text-xs text-slate-500 mt-1 font-medium">${String(s.notas).replace(/</g,'&lt;')}</p>`:''}
+            </div>`).join('') : '<p class="text-sm text-slate-400 mb-4 text-center py-4 bg-slate-50 rounded-xl">Sin seguimientos registrados</p>'}
+        </div>
+
+        <div class="p-6 rounded-2xl bg-slate-900 text-white space-y-4 shadow-xl">
+          <p class="text-sm font-black uppercase tracking-widest text-red-500">➕ Registrar Seguimiento</p>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="text-slate-400">Tipo</label><select id="sTipo" class="!bg-slate-800 !border-slate-700 !text-white"><option value="visita">Visita</option><option value="llamada">Llamada</option><option value="whatsapp">WhatsApp</option><option value="correo">Correo</option></select></div>
+            <div><label class="text-slate-400">Resultado</label><select id="sRes" class="!bg-slate-800 !border-slate-700 !text-white"><option value="cliente_activo">Cliente activo 🟢</option><option value="interesado">Interesado ✅</option><option value="visitar_despues">Volver 🗓️</option><option value="no_interesado">Rechazado ❌</option><option value="sin_respuesta">Sin respuesta</option></select></div>
+          </div>
+          <div><label class="text-slate-400">Notas</label><textarea id="sNotas" rows="2" class="!bg-slate-800 !border-slate-700 !text-white" placeholder="Detalles de la gestión..."></textarea></div>
+          <div id="wrapProx" class="hidden"><label class="text-slate-400">Próxima Visita</label><input id="sProx" type="datetime-local" class="!bg-slate-800 !border-slate-700 !text-white"></div>
+          <button class="btn-primary w-full shadow-lg" onclick="guardarSeguimiento('${t.id}')">Guardar Gestión</button>
+        </div>
+      </div>
+    </div>`;
+
+    modalEl.classList.remove('hidden');
+    modalEl.scrollTop = 0;
+    document.body.style.overflow='hidden';
+
+    setTimeout(()=>{
+      const mf = L.map('mapaFicha',{zoomControl:false,attributionControl:false}).setView([t.lat,t.lng],15);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(mf);
+      L.marker([t.lat,t.lng]).addTo(mf);
+      const sel = document.getElementById('sRes'), wrap = document.getElementById('wrapProx');
+      if(sel && wrap) sel.onchange = ()=> wrap.classList.toggle('hidden', sel.value!=='visitar_despues');
+    },100);
+  } catch(err) {
+    console.error('Error en abrirTienda:', err);
+    alert('Error al abrir la tienda: ' + err.message);
+  }
+}
+
+function cerrarModal(){
+  const modalEl = document.getElementById('modal');
+  if(modalEl) {
+    modalEl.classList.add('hidden');
+    modalEl.scrollTop = 0;
+  }
+  document.body.style.overflow='';
+  renderAll();
+}
+
+document.getElementById('modal')?.addEventListener('click',e=>{ if(e.target.id==='modal') cerrarModal(); });
+
+function guardarSeguimiento(id){
+  const targetId = String(id);
+  const t = tiendas.find(x => String(x.id) === targetId);
+  if(!t) return;
+  const res = document.getElementById('sRes').value;
+  if(!Array.isArray(t.seg)) t.seg=[];
+  const nuevo = { tipo:document.getElementById('sTipo').value, res, fecha:new Date().toISOString().slice(0,10), notas:document.getElementById('sNotas').value.trim() };
+  if(res==='no_interesado'){ if(!confirm('⚠️ ¿Confirmar rechazo de la tienda?')) return; t.estado='rechazada'; }
+  else if(res==='cliente_activo') t.estado='cliente';
+  else if(res==='interesado') t.estado='negociacion';
+  else if(res==='visitar_despues'){ t.estado='visitar_despues'; const p=document.getElementById('sProx').value; if(p) t.fecha=p; }
+  else t.estado = t.estado==='nueva' ? 'contactada' : t.estado;
+  t.seg.push(nuevo); save();
+  syncTienda(t).catch(()=>alert('⚠️ El seguimiento se guardó localmente pero no se pudo sincronizar. Revisa tu internet.'));
+  abrirTienda(targetId); renderAll();
+}
+go && null;
+</script>
+</body>
+</html>

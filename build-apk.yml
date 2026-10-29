@@ -1,0 +1,1080 @@
+name: Build APK v7
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Crear proyecto
+        run: |
+          cat > settings.gradle.kts <<'EOF_FILE'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "TvSender"
+          include(":app")
+          EOF_FILE
+
+          cat > build.gradle.kts <<'EOF_FILE'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF_FILE
+
+          mkdir -p app/src/main/java/com/example/tvsender
+
+          cat > app/build.gradle.kts <<'EOF_FILE'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.example.tvsender"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.example.tvsender"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 4
+                  versionName = "3.1"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          EOF_FILE
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+              <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+              <application
+                  android:label="Enviar a TV"
+                  android:usesCleartextTraffic="true"
+                  android:theme="@android:style/Theme.DeviceDefault.Light">
+
+                  <service
+                      android:name=".ProxyService"
+                      android:foregroundServiceType="dataSync"
+                      android:exported="false" />
+
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter>
+                          <action android:name="android.intent.action.SEND" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:mimeType="text/plain" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF_FILE
+
+          cat > app/src/main/java/com/example/tvsender/Store.kt <<'EOF_FILE'
+          package com.example.tvsender
+
+          import android.content.Context
+          import org.json.JSONArray
+          import org.json.JSONObject
+
+          data class Saved(val name: String, val url: String, val icon: String)
+
+          object Store {
+              private const val PREFS = "tvsender_prefs"
+              private const val KEY = "saved_urls"
+
+              fun load(ctx: Context): MutableList<Saved> {
+                  val out = mutableListOf<Saved>()
+                  val raw = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null) ?: return out
+                  runCatching {
+                      val arr = JSONArray(raw)
+                      for (i in 0 until arr.length()) {
+                          val o = arr.getJSONObject(i)
+                          out.add(Saved(o.getString("name"), o.getString("url"), o.optString("icon", "📺")))
+                      }
+                  }
+                  return out
+              }
+
+              fun save(ctx: Context, list: List<Saved>) {
+                  val arr = JSONArray()
+                  list.forEach {
+                      arr.put(JSONObject().put("name", it.name).put("url", it.url).put("icon", it.icon))
+                  }
+                  ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, arr.toString()).apply()
+              }
+          }
+          EOF_FILE
+
+          cat > app/src/main/java/com/example/tvsender/Dlna.kt <<'EOF_FILE'
+          package com.example.tvsender
+
+          import org.w3c.dom.Element
+          import org.xml.sax.InputSource
+          import java.io.StringReader
+          import java.net.*
+          import javax.xml.parsers.DocumentBuilderFactory
+
+          data class Tv(val name: String, val controlUrl: String, val renderUrl: String?) {
+              override fun toString() = name
+          }
+
+          data class Pos(val pos: Int, val dur: Int)
+
+          object Dlna {
+              private const val AVT = "urn:schemas-upnp-org:service:AVTransport:1"
+              private const val RC = "urn:schemas-upnp-org:service:RenderingControl:1"
+
+              fun discover(timeoutMs: Int = 4000): List<Tv> {
+                  val msg = ("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n" +
+                          "MAN: \"ssdp:discover\"\r\nMX: 2\r\nST: $AVT\r\n\r\n").toByteArray()
+                  val locations = linkedSetOf<String>()
+                  DatagramSocket().use { s ->
+                      s.soTimeout = 1000
+                      val group = InetAddress.getByName("239.255.255.250")
+                      repeat(2) { s.send(DatagramPacket(msg, msg.size, group, 1900)) }
+                      val end = System.currentTimeMillis() + timeoutMs
+                      val buf = ByteArray(4096)
+                      while (System.currentTimeMillis() < end) {
+                          try {
+                              val p = DatagramPacket(buf, buf.size)
+                              s.receive(p)
+                              String(p.data, 0, p.length).lines()
+                                  .firstOrNull { it.startsWith("location:", true) }
+                                  ?.substringAfter(":")?.trim()?.let { locations.add(it) }
+                          } catch (_: SocketTimeoutException) { }
+                      }
+                  }
+                  return locations.mapNotNull { runCatching { describe(it) }.getOrNull() }
+              }
+
+              private fun describe(location: String): Tv? {
+                  val conn = URL(location).openConnection().apply { connectTimeout = 3000; readTimeout = 3000 }
+                  val xml = conn.getInputStream().bufferedReader().readText()
+                  val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                      .parse(InputSource(StringReader(xml)))
+                  val name = doc.getElementsByTagName("friendlyName").item(0)?.textContent ?: "TV"
+                  val services = doc.getElementsByTagName("service")
+                  var avt: String? = null
+                  var rc: String? = null
+                  for (i in 0 until services.length) {
+                      val el = services.item(i) as Element
+                      val type = el.getElementsByTagName("serviceType").item(0)?.textContent ?: continue
+                      val ctrl = el.getElementsByTagName("controlURL").item(0)?.textContent?.trim() ?: continue
+                      if (type.contains("AVTransport")) avt = URL(URL(location), ctrl).toString()
+                      if (type.contains("RenderingControl")) rc = URL(URL(location), ctrl).toString()
+                  }
+                  return avt?.let { Tv(name, it, rc) }
+              }
+
+              data class Media(val ext: String, val mime: String, val kind: String, val hls: Boolean)
+
+              fun probe(url: String): Media {
+                  val cleanUrl = url.substringBefore("?").substringBefore("#").lowercase()
+                  val isHls = cleanUrl.endsWith(".m3u8") || cleanUrl.endsWith(".m3u") ||
+                          (!cleanUrl.endsWith(".mp4") && !cleanUrl.endsWith(".mkv") && Proxy.sniffIsHls(url))
+                  if (isHls) return Media("ts", "video/mpeg", "video", true)
+
+                  return Media("mp4", "video/mp4", "video", false)
+              }
+
+              fun localIpFor(tv: Tv): String {
+                  val host = URL(tv.controlUrl).host
+                  DatagramSocket().use { s ->
+                      s.connect(InetAddress.getByName(host), 9)
+                      return s.localAddress.hostAddress ?: error("No se pudo obtener la IP local")
+                  }
+              }
+
+              fun play(tv: Tv, mediaUrl: String, m: Media, title: String = "Transmisión de Video") {
+                  val didl = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
+                          "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
+                          "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
+                          "<item id=\"0\" parentID=\"-1\" restricted=\"1\">" +
+                          "<dc:title>${esc(title)}</dc:title>" +
+                          "<upnp:class>object.item.videoItem</upnp:class>" +
+                          "<res protocolInfo=\"http-get:*:${m.mime}:*\">${esc(mediaUrl)}</res>" +
+                          "</item></DIDL-Lite>"
+                  avt(tv, "SetAVTransportURI",
+                      "<CurrentURI>${esc(mediaUrl)}</CurrentURI><CurrentURIMetaData>${esc(didl)}</CurrentURIMetaData>")
+                  avt(tv, "Play", "<Speed>1</Speed>")
+              }
+
+              // ---------- Control remoto ----------
+              fun stop(tv: Tv) { avt(tv, "Stop", "") }
+              fun pause(tv: Tv) { avt(tv, "Pause", "") }
+              fun resume(tv: Tv) { avt(tv, "Play", "<Speed>1</Speed>") }
+
+              fun seek(tv: Tv, seconds: Int) {
+                  val s = seconds.coerceAtLeast(0)
+                  val t = "%02d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
+                  avt(tv, "Seek", "<Unit>REL_TIME</Unit><Target>$t</Target>")
+              }
+
+              fun position(tv: Tv): Pos {
+                  val r = avt(tv, "GetPositionInfo", "")
+                  return Pos(toSec(tag(r, "RelTime")), toSec(tag(r, "TrackDuration")))
+              }
+
+              fun getVolume(tv: Tv): Int {
+                  val url = tv.renderUrl ?: return -1
+                  val r = call(url, RC, "GetVolume", "<Channel>Master</Channel>")
+                  return tag(r, "CurrentVolume")?.trim()?.toIntOrNull() ?: -1
+              }
+
+              fun setVolume(tv: Tv, v: Int) {
+                  val url = tv.renderUrl ?: return
+                  call(url, RC, "SetVolume", "<Channel>Master</Channel><DesiredVolume>${v.coerceIn(0, 100)}</DesiredVolume>")
+              }
+
+              fun setMute(tv: Tv, mute: Boolean) {
+                  val url = tv.renderUrl ?: return
+                  call(url, RC, "SetMute", "<Channel>Master</Channel><DesiredMute>${if (mute) 1 else 0}</DesiredMute>")
+              }
+
+              private fun tag(xml: String, name: String): String? =
+                  Regex("<$name>(.*?)</$name>", RegexOption.DOT_MATCHES_ALL).find(xml)?.groupValues?.get(1)
+
+              private fun toSec(s: String?): Int {
+                  if (s == null) return 0
+                  val p = s.trim().split(":")
+                  if (p.size < 3) return 0
+                  return runCatching {
+                      p[0].toInt() * 3600 + p[1].toInt() * 60 + p[2].substringBefore(".").toInt()
+                  }.getOrDefault(0)
+              }
+
+              private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
+              private fun avt(tv: Tv, action: String, args: String): String = call(tv.controlUrl, AVT, action, args)
+
+              private fun call(url: String, service: String, action: String, args: String): String {
+                  val body = "<?xml version=\"1.0\"?>" +
+                          "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">" +
+                          "<s:Body><u:$action xmlns:u=\"$service\"><InstanceID>0</InstanceID>$args</u:$action></s:Body></s:Envelope>"
+                  val c = URL(url).openConnection() as HttpURLConnection
+                  c.requestMethod = "POST"
+                  c.doOutput = true
+                  c.connectTimeout = 5000
+                  c.readTimeout = 7000
+                  c.setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"")
+                  c.setRequestProperty("SOAPAction", "\"$service#$action\"")
+                  c.outputStream.use { it.write(body.toByteArray()) }
+                  if (c.responseCode !in 200..299) {
+                      val err = runCatching { c.errorStream?.bufferedReader()?.readText() }.getOrNull() ?: ""
+                      val code = Regex("<errorCode>(.*?)</errorCode>").find(err)?.groupValues?.get(1)
+                      val desc = Regex("<errorDescription>(.*?)</errorDescription>").find(err)?.groupValues?.get(1)
+                      error("$action: HTTP ${c.responseCode}" + (code?.let { " (UPnP $it ${desc ?: ""})" } ?: ""))
+                  }
+                  return c.inputStream.bufferedReader().readText()
+              }
+          }
+          EOF_FILE
+
+          cat > app/src/main/java/com/example/tvsender/Proxy.kt <<'EOF_FILE'
+          package com.example.tvsender
+
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.os.Build
+          import android.os.IBinder
+          import android.os.PowerManager
+          import java.io.OutputStream
+          import java.net.HttpURLConnection
+          import java.net.ServerSocket
+          import java.net.Socket
+          import java.net.URL
+          import kotlin.concurrent.thread
+
+          class ProxyService : Service() {
+              private var wakeLock: PowerManager.WakeLock? = null
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                  wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TvSender::ProxyLock").apply {
+                      acquire(10 * 60 * 60 * 1000L) // Mantiene despierto el procesador hasta por 10 horas
+                  }
+
+                  val channelId = "tv_sender_channel_v2"
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val channel = NotificationChannel(channelId, "Streaming Continuo a TV", NotificationManager.IMPORTANCE_LOW)
+                      getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+                  }
+                  val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      android.app.Notification.Builder(this, channelId)
+                          .setContentTitle("Transmitiendo video al TV")
+                          .setContentText("Proxy Universal Activo - Manteniendo conexión")
+                          .setSmallIcon(android.R.drawable.ic_media_play)
+                          .build()
+                  } else {
+                      @Suppress("DEPRECATION")
+                      android.app.Notification.Builder(this)
+                          .setContentTitle("Transmitiendo video al TV")
+                          .setContentText("Proxy Universal Activo")
+                          .setSmallIcon(android.R.drawable.ic_media_play)
+                          .build()
+                  }
+                  startForeground(102, notification)
+                  return START_STICKY
+              }
+
+              override fun onDestroy() {
+                  runCatching { wakeLock?.release() }
+                  super.onDestroy()
+              }
+          }
+
+          object Proxy {
+              private var server: ServerSocket? = null
+              @Volatile var target: String = ""
+              @Volatile var isHls: Boolean = false
+              @Volatile var startSec: Int = 0
+              @Volatile var totalSec: Int = 0
+              @Volatile var paused: Boolean = false
+              @Volatile var generation: Int = 0
+
+              fun reset() {
+                  generation++
+                  paused = false
+              }
+
+              @Synchronized
+              fun start(): Int {
+                  server?.let { return it.localPort }
+                  val ss = ServerSocket(0)
+                  server = ss
+                  thread(isDaemon = true) {
+                      while (!ss.isClosed) {
+                          val c = try { ss.accept() } catch (e: Exception) { break }
+                          thread(isDaemon = true) {
+                              try { handle(c) } catch (_: Exception) { } finally { runCatching { c.close() } }
+                          }
+                      }
+                  }
+                  return ss.localPort
+              }
+
+              private fun openConnection(urlStr: String): HttpURLConnection {
+                  val url = URL(urlStr)
+                  val conn = url.openConnection() as HttpURLConnection
+                  conn.connectTimeout = 12000
+                  conn.readTimeout = 30000
+                  conn.instanceFollowRedirects = true
+                  conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                  conn.setRequestProperty("Accept", "*/*")
+                  conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9,es;q=0.8")
+                  conn.setRequestProperty("Connection", "keep-alive")
+                  return conn
+              }
+
+              private fun fetchText(u: String): String =
+                  openConnection(u).inputStream.bufferedReader().use { it.readText() }
+
+              // Mira el contenido real del enlace para saber si es una lista HLS (#EXTM3U)
+              private fun peek(url: String, useRange: Boolean): Pair<String, String> {
+                  val conn = openConnection(url)
+                  if (useRange) conn.setRequestProperty("Range", "bytes=0-1023")
+                  try {
+                      val type = (conn.contentType ?: "").lowercase()
+                      val head = conn.inputStream.use { s ->
+                          val buf = ByteArray(16)
+                          val n = s.read(buf)
+                          if (n > 0) String(buf, 0, n, Charsets.ISO_8859_1) else ""
+                      }
+                      return Pair(type, head)
+                  } finally {
+                      conn.disconnect()
+                  }
+              }
+
+              fun sniffIsHls(url: String): Boolean {
+                  val r = runCatching { peek(url, true) }.getOrElse { runCatching { peek(url, false) }.getOrNull() }
+                      ?: return false
+                  return r.first.contains("mpegurl") || r.second.trimStart('\uFEFF').startsWith("#EXTM3U")
+              }
+
+              private fun waitIfPaused(gen: Int) {
+                  while (paused && generation == gen) Thread.sleep(150)
+              }
+
+              // Copia datos al TV; si se pausa desde el cel, deja de enviar hasta reanudar
+              private fun copyChunks(input: java.io.InputStream, out: OutputStream, gen: Int): Boolean {
+                  val buf = ByteArray(32 * 1024)
+                  while (generation == gen) {
+                      waitIfPaused(gen)
+                      val n = input.read(buf)
+                      if (n < 0) return true
+                      out.write(buf, 0, n)
+                  }
+                  return false
+              }
+
+              private fun handle(c: Socket) {
+                  val inp = c.getInputStream().bufferedReader(Charsets.ISO_8859_1)
+                  val reqLine = inp.readLine() ?: return
+                  var range: String? = null
+                  while (true) {
+                      val l = inp.readLine() ?: break
+                      if (l.isEmpty()) break
+                      if (l.startsWith("Range:", true)) range = l.substringAfter(":").trim()
+                  }
+                  val head = reqLine.startsWith("HEAD")
+                  val out = c.getOutputStream()
+                  val gen = generation
+
+                  if (isHls) {
+                      streamHls(out, head, gen)
+                      return
+                  }
+
+                  streamDirectWithRetry(out, head, range, gen)
+              }
+
+              private fun streamDirectWithRetry(out: OutputStream, head: Boolean, range: String?, gen: Int) {
+                  var retries = 0
+                  val maxRetries = 5
+                  while (retries < maxRetries && generation == gen) {
+                      try {
+                          val conn = openConnection(target)
+                          if (range != null) conn.setRequestProperty("Range", range)
+                          val code = conn.responseCode
+
+                          val sb = StringBuilder("HTTP/1.1 $code ${conn.responseMessage ?: "OK"}\r\n")
+                          for (h in listOf("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges")) {
+                              conn.getHeaderField(h)?.let { sb.append("$h: $it\r\n") }
+                          }
+                          sb.append("transferMode.dlna.org: Streaming\r\nConnection: keep-alive\r\n\r\n")
+                          out.write(sb.toString().toByteArray())
+
+                          if (!head) {
+                              val stream = if (code >= 400) conn.errorStream else conn.inputStream
+                              stream?.use { copyChunks(it, out, gen) }
+                          }
+                          out.flush()
+                          break
+                      } catch (e: Exception) {
+                          if (generation != gen) break
+                          retries++
+                          Thread.sleep(1000)
+                      }
+                  }
+              }
+
+              private fun streamHls(out: OutputStream, head: Boolean, gen: Int) {
+                  out.write(("HTTP/1.1 200 OK\r\nContent-Type: video/mpeg\r\n" +
+                          "transferMode.dlna.org: Streaming\r\nConnection: keep-alive\r\n\r\n").toByteArray())
+                  if (head) { out.flush(); return }
+
+                  var playlistUrl = target
+                  var text = try { fetchText(playlistUrl) } catch (e: Exception) { return }
+
+                  if (text.contains("#EXT-X-STREAM-INF")) {
+                      val lines = text.lines()
+                      var maxBw = -1L
+                      var bestUri: String? = null
+                      for (i in lines.indices) {
+                          if (lines[i].startsWith("#EXT-X-STREAM-INF")) {
+                              val bw = Regex("BANDWIDTH=(\\d+)").find(lines[i])?.groupValues?.get(1)?.toLong() ?: 0L
+                              val uri = lines.drop(i + 1).firstOrNull { it.isNotBlank() && !it.startsWith("#") }
+                              if (uri != null && bw > maxBw) { maxBw = bw; bestUri = uri.trim() }
+                          }
+                      }
+                      playlistUrl = URL(URL(playlistUrl), bestUri ?: error("Playlist vacía")).toString()
+                      text = try { fetchText(playlistUrl) } catch (e: Exception) { return }
+                  }
+
+                  // Video con final (película / capítulo): se puede adelantar y pausar
+                  if (text.contains("#EXT-X-ENDLIST")) {
+                      streamVod(out, playlistUrl, text, gen)
+                      return
+                  }
+
+                  // En vivo
+                  val processed = LinkedHashSet<String>()
+                  while (generation == gen) {
+                      try {
+                          val manifest = fetchText(playlistUrl)
+                          val segs = manifest.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+                          for (seg in segs) {
+                              if (generation != gen) return
+                              val segUrl = URL(URL(playlistUrl), seg).toString()
+                              if (processed.add(segUrl)) {
+                                  var ok = false
+                                  var tries = 0
+                                  while (!ok && tries < 3 && generation == gen) {
+                                      try {
+                                          openConnection(segUrl).inputStream.use { ok = copyChunks(it, out, gen) }
+                                          out.flush()
+                                      } catch (e: Exception) {
+                                          tries++
+                                          Thread.sleep(500)
+                                      }
+                                  }
+                              }
+                          }
+                          if (manifest.contains("#EXT-X-ENDLIST")) break
+                      } catch (_: Exception) { }
+                      Thread.sleep(1200)
+                  }
+              }
+
+              private fun streamVod(out: OutputStream, playlistUrl: String, text: String, gen: Int) {
+                  val segs = mutableListOf<Pair<String, Double>>()
+                  var d = 0.0
+                  for (raw in text.lines()) {
+                      val l = raw.trim()
+                      if (l.startsWith("#EXTINF:")) {
+                          d = l.substringAfter(":").substringBefore(",").trim().toDoubleOrNull() ?: 0.0
+                      } else if (l.isNotEmpty() && !l.startsWith("#")) {
+                          segs.add(Pair(URL(URL(playlistUrl), l).toString(), d))
+                      }
+                  }
+                  totalSec = segs.fold(0.0) { a, s -> a + s.second }.toInt()
+
+                  var acc = 0.0
+                  var begun = false
+                  for ((u, dur) in segs) {
+                      if (generation != gen) return
+                      if (!begun && acc + dur <= startSec) { acc += dur; continue }
+                      begun = true
+                      var ok = false
+                      var tries = 0
+                      while (!ok && tries < 3 && generation == gen) {
+                          try {
+                              openConnection(u).inputStream.use { ok = copyChunks(it, out, gen) }
+                              out.flush()
+                          } catch (e: Exception) {
+                              tries++
+                              Thread.sleep(500)
+                          }
+                      }
+                  }
+              }
+          }
+          EOF_FILE
+
+          cat > app/src/main/java/com/example/tvsender/MainActivity.kt <<'EOF_FILE'
+          package com.example.tvsender
+
+          import android.app.Activity
+          import android.app.AlertDialog
+          import android.content.Intent
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.net.wifi.WifiManager
+          import android.os.Bundle
+          import android.text.TextUtils
+          import android.view.Gravity
+          import android.view.View
+          import android.widget.*
+          import kotlin.concurrent.thread
+
+          class MainActivity : Activity() {
+              private val tvs = mutableListOf<Tv>()
+              private lateinit var adapter: ArrayAdapter<Tv>
+              private lateinit var spinner: Spinner
+              private lateinit var urlBox: EditText
+              private lateinit var status: TextView
+              private lateinit var nowPlaying: TextView
+              private lateinit var timeLabel: TextView
+              private lateinit var seek: SeekBar
+              private lateinit var volSeek: SeekBar
+              private lateinit var playPause: Button
+              private lateinit var muteBtn: Button
+              private lateinit var savedList: LinearLayout
+
+              private var saved = mutableListOf<Saved>()
+              private val icons = listOf("📺", "🎬", "⚽", "🎵", "📰", "🎮", "🧒", "🌎", "⭐", "🔴", "🎥", "🏆", "📡", "🍿")
+
+              @Volatile private var currentTv: Tv? = null
+              @Volatile private var polling = false
+              @Volatile private var dragging = false
+              @Volatile private var lastPos = 0
+              @Volatile private var lastDur = 0
+              private var paused = false
+              private var softPaused = false
+              @Volatile private var baseSec = 0
+              private var curMedia: Dlna.Media? = null
+              private var curTitle = ""
+              private var curBase = ""
+              private var playToken = 0
+              private var muted = false
+              private var dp = 1f
+
+              private fun px(v: Int) = (v * dp).toInt()
+
+              private fun card(color: Int = Color.WHITE) = GradientDrawable().apply {
+                  setColor(color)
+                  cornerRadius = px(12).toFloat()
+              }
+
+              private fun btn(text: String, color: Int, onClick: () -> Unit) = Button(this).apply {
+                  this.text = text
+                  setTextColor(Color.WHITE)
+                  setBackgroundColor(color)
+                  setOnClickListener { onClick() }
+              }
+
+              private fun label(text: String, size: Float = 14f, color: Int = 0xFF4B5563.toInt(), bold: Boolean = false) =
+                  TextView(this).apply {
+                      this.text = text
+                      textSize = size
+                      setTextColor(color)
+                      if (bold) setTypeface(null, Typeface.BOLD)
+                  }
+
+              private fun row(vararg views: View) = LinearLayout(this).apply {
+                  orientation = LinearLayout.HORIZONTAL
+                  views.forEach {
+                      addView(it, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                          setMargins(px(2), 0, px(2), 0)
+                      })
+                  }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  dp = resources.displayMetrics.density
+                  saved = Store.load(this)
+
+                  val pad = px(16)
+                  val root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(pad, pad, pad, pad * 2)
+                  }
+                  val scroll = ScrollView(this).apply {
+                      setBackgroundColor(0xFFF4F6F8.toInt())
+                      addView(root)
+                  }
+                  fun add(v: View, top: Int = 8) = root.addView(v, LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                  ).apply { setMargins(0, px(top), 0, 0) })
+
+                  add(label("Universal TV Cast", 22f, 0xFF111827.toInt(), true), 0)
+
+                  // --- Televisor ---
+                  add(btn("🔍 Buscar Televisores", 0xFF2563EB.toInt()) { scan() })
+                  adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, tvs)
+                  spinner = Spinner(this).apply { this.adapter = this@MainActivity.adapter }
+                  add(label("Televisor seleccionado:"), 12)
+                  add(spinner, 0)
+
+                  // --- Control remoto ---
+                  val panel = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      background = card()
+                      setPadding(pad, pad, pad, pad)
+                  }
+                  nowPlaying = label("Nada reproduciéndose", 16f, 0xFF111827.toInt(), true)
+                  timeLabel = label("0:00 / 0:00", 13f).apply { gravity = Gravity.CENTER_HORIZONTAL }
+                  seek = SeekBar(this).apply {
+                      max = 0
+                      isEnabled = false
+                      setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                          override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
+                              if (fromUser) timeLabel.text = "${fmt(p)} / ${fmt(lastDur)}"
+                          }
+                          override fun onStartTrackingTouch(sb: SeekBar) { dragging = true }
+                          override fun onStopTrackingTouch(sb: SeekBar) {
+                              dragging = false
+                              val target = sb.progress
+                              seekTo(target)
+                          }
+                      })
+                  }
+                  playPause = btn("⏸ Pausa", 0xFF2563EB.toInt()) { togglePause() }
+                  muteBtn = btn("🔇 Silenciar", 0xFF6B7280.toInt()) { toggleMute() }
+                  volSeek = SeekBar(this).apply {
+                      max = 100
+                      progress = 30
+                      setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                          override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {}
+                          override fun onStartTrackingTouch(sb: SeekBar) {}
+                          override fun onStopTrackingTouch(sb: SeekBar) {
+                              val v = sb.progress
+                              control("Volumen") { Dlna.setVolume(it, v) }
+                          }
+                      })
+                  }
+                  panel.addView(nowPlaying)
+                  panel.addView(seek)
+                  panel.addView(timeLabel)
+                  panel.addView(row(
+                      btn("⏪ 10s", 0xFF374151.toInt()) { seekBy(-10) },
+                      playPause,
+                      btn("10s ⏩", 0xFF374151.toInt()) { seekBy(10) },
+                      btn("⏹", 0xFFDC2626.toInt()) { stop() }
+                  ))
+                  panel.addView(label("Volumen del TV", 13f).apply { setPadding(0, px(10), 0, 0) })
+                  panel.addView(volSeek)
+                  panel.addView(muteBtn)
+                  add(panel, 12)
+
+                  status = label("Estado: Preparado para transmitir", 14f, 0xFF374151.toInt()).apply {
+                      gravity = Gravity.CENTER_HORIZONTAL
+                  }
+                  add(status, 8)
+
+                  // --- Enlaces guardados ---
+                  val header = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                  }
+                  header.addView(label("⭐ Mis enlaces", 18f, 0xFF111827.toInt(), true),
+                      LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                  header.addView(btn("＋ Agregar", 0xFF16A34A.toInt()) { editDialog(null) })
+                  add(header, 16)
+                  savedList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  add(savedList, 4)
+                  add(label("Mantén presionado un enlace para editarlo o borrarlo.", 12f, 0xFF6B7280.toInt()), 4)
+
+                  // --- Enlace manual ---
+                  add(label("O pega cualquier enlace (.m3u8 / .mp4):"), 16)
+                  urlBox = EditText(this).apply {
+                      hint = "Pega aquí cualquier enlace de video"
+                      setPadding(pad, pad, pad, pad)
+                      background = card()
+                      textSize = 14f
+                  }
+                  add(urlBox, 4)
+                  add(row(
+                      btn("▶ Transmitir", 0xFF16A34A.toInt()) { play(urlBox.text.toString().trim(), "Transmisión de Video") },
+                      btn("💾 Guardar", 0xFF7C3AED.toInt()) { editDialog(null, urlBox.text.toString().trim()) }
+                  ), 8)
+
+                  setContentView(scroll)
+                  renderSaved()
+
+                  if (intent?.action == Intent.ACTION_SEND) {
+                      urlBox.setText(intent.getStringExtra(Intent.EXTRA_TEXT) ?: "")
+                  }
+                  scan()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  startPolling()
+              }
+
+              override fun onPause() {
+                  polling = false
+                  super.onPause()
+              }
+
+              // ---------- Descubrimiento ----------
+              private fun scan() {
+                  status.text = "Escaneando la red WiFi en busca de Smart TVs..."
+                  thread {
+                      val wifi = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+                      val lock = wifi.createMulticastLock("dlna").apply { acquire() }
+                      val found = try { Dlna.discover() } catch (e: Exception) { emptyList() } finally { lock.release() }
+                      runOnUiThread {
+                          tvs.clear(); tvs.addAll(found); adapter.notifyDataSetChanged()
+                          status.text = if (found.isEmpty()) "⚠️ No se detectó ningún TV en esta red WiFi"
+                          else "✅ Se detectaron ${found.size} televisor(es)"
+                      }
+                  }
+              }
+
+              // ---------- Reproducción ----------
+              private fun play(url: String, title: String) {
+                  val tv = spinner.selectedItem as? Tv ?: return toast("Selecciona un televisor de la lista")
+                  if (url.isEmpty()) return toast("Por favor ingresa un enlace de video")
+
+                  try {
+                      startService(Intent(this, ProxyService::class.java))
+                  } catch (_: Exception) {}
+
+                  status.text = "Iniciando Proxy Universal y enviando transmisión..."
+                  nowPlaying.text = "🎬 $title"
+                  thread {
+                      val msg = try {
+                          val media = Dlna.probe(url)
+
+                          Proxy.reset()
+                          Proxy.totalSec = 0
+                          Proxy.startSec = 0
+                          Proxy.target = url
+                          Proxy.isHls = media.hls
+                          val port = Proxy.start()
+                          curBase = "http://${Dlna.localIpFor(tv)}:$port"
+                          curMedia = media; curTitle = title; baseSec = 0; softPaused = false; playToken++
+                          val playUrl = "$curBase/s$playToken.${media.ext}"
+
+                          Dlna.play(tv, playUrl, media, title)
+                          currentTv = tv
+                          "▶ Reproduciendo en ${tv.name}"
+                      } catch (e: Exception) {
+                          "❌ Error de conexión: ${e.message}"
+                      }
+                      paused = false
+                      runOnUiThread {
+                          status.text = msg
+                          playPause.text = "⏸ Pausa"
+                      }
+                      val vol = runCatching { Dlna.getVolume(tv) }.getOrDefault(-1)
+                      if (vol >= 0) runOnUiThread { volSeek.progress = vol }
+                  }
+              }
+
+              private fun stop() {
+                  val tv = spinner.selectedItem as? Tv ?: return
+                  thread {
+                      runCatching { Dlna.stop(tv) }
+                      runCatching { stopService(Intent(this@MainActivity, ProxyService::class.java)) }
+                      currentTv = null
+                      Proxy.reset()
+                      Proxy.totalSec = 0
+                      softPaused = false
+                      runOnUiThread {
+                          status.text = "⏹ Transmisión detenida correctamente"
+                          nowPlaying.text = "Nada reproduciéndose"
+                          seek.max = 0; seek.progress = 0; seek.isEnabled = false
+                          timeLabel.text = "0:00 / 0:00"
+                          playPause.text = "⏸ Pausa"
+                      }
+                  }
+              }
+
+              // ---------- Control remoto ----------
+              private fun control(name: String, block: (Tv) -> Unit) {
+                  val tv = currentTv ?: spinner.selectedItem as? Tv ?: return toast("Selecciona un televisor")
+                  thread {
+                      try { block(tv) } catch (e: Exception) {
+                          runOnUiThread { status.text = "❌ ${e.message}" }
+                      }
+                  }
+              }
+
+              private fun togglePause() {
+                  val wasPaused = paused
+                  control("Pausa") { tv ->
+                      if (wasPaused) {
+                          if (softPaused) { Proxy.paused = false; softPaused = false } else Dlna.resume(tv)
+                      } else {
+                          try { Dlna.pause(tv) } catch (e: Exception) { Proxy.paused = true; softPaused = true }
+                      }
+                      runOnUiThread {
+                          paused = !wasPaused
+                          playPause.text = if (paused) "▶ Reanudar" else "⏸ Pausa"
+                      }
+                  }
+              }
+
+              private fun seekTo(sec: Int) {
+                  val m = curMedia
+                  if (m != null && m.hls && Proxy.totalSec > 0) {
+                      control("Adelantar") { tv ->
+                          Proxy.reset()
+                          Proxy.startSec = sec
+                          baseSec = sec
+                          softPaused = false
+                          playToken++
+                          Dlna.play(tv, "$curBase/s$playToken.${m.ext}", m, curTitle)
+                          runOnUiThread { paused = false; playPause.text = "⏸ Pausa" }
+                      }
+                  } else {
+                      control("Adelantar") { Dlna.seek(it, sec) }
+                  }
+              }
+
+              private fun seekBy(delta: Int) {
+                  val target = (lastPos + delta).coerceIn(0, if (lastDur > 0) lastDur else Int.MAX_VALUE)
+                  seekTo(target)
+              }
+
+              private fun toggleMute() {
+                  muted = !muted
+                  val m = muted
+                  control("Silencio") { Dlna.setMute(it, m) }
+                  muteBtn.text = if (m) "🔊 Quitar silencio" else "🔇 Silenciar"
+              }
+
+              private fun startPolling() {
+                  if (polling) return
+                  polling = true
+                  thread(isDaemon = true) {
+                      while (polling) {
+                          val t = currentTv
+                          if (t != null) {
+                              val info = runCatching { Dlna.position(t) }.getOrNull()
+                              if (info != null) {
+                                  val vod = Proxy.isHls && Proxy.totalSec > 0
+                                  val pos = if (vod) (baseSec + info.pos).coerceAtMost(Proxy.totalSec) else info.pos
+                                  val dur = if (vod) Proxy.totalSec else info.dur
+                                  lastPos = pos
+                                  lastDur = dur
+                                  runOnUiThread {
+                                      if (!dragging) {
+                                          seek.max = dur.coerceAtLeast(0)
+                                          seek.progress = pos.coerceAtMost(seek.max)
+                                      }
+                                      seek.isEnabled = dur > 0
+                                      timeLabel.text = if (dur > 0) "${fmt(pos)} / ${fmt(dur)}"
+                                      else "${fmt(pos)} · EN VIVO"
+                                  }
+                              }
+                          }
+                          Thread.sleep(1000)
+                      }
+                  }
+              }
+
+              private fun fmt(sec: Int): String {
+                  val h = sec / 3600
+                  val m = (sec % 3600) / 60
+                  val s = sec % 60
+                  return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+              }
+
+              // ---------- Enlaces guardados ----------
+              private fun renderSaved() {
+                  savedList.removeAllViews()
+                  if (saved.isEmpty()) {
+                      savedList.addView(label("Aún no tienes enlaces guardados. Toca “＋ Agregar”.", 13f, 0xFF6B7280.toInt()))
+                      return
+                  }
+                  saved.forEachIndexed { i, s ->
+                      val item = LinearLayout(this).apply {
+                          orientation = LinearLayout.HORIZONTAL
+                          gravity = Gravity.CENTER_VERTICAL
+                          background = card()
+                          setPadding(px(12), px(10), px(12), px(10))
+                      }
+                      val icon = TextView(this).apply {
+                          text = s.icon
+                          textSize = 28f
+                          setPadding(0, 0, px(12), 0)
+                      }
+                      val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                      col.addView(label(s.name, 16f, 0xFF111827.toInt(), true))
+                      col.addView(label(s.url, 11f, 0xFF9CA3AF.toInt()).apply {
+                          maxLines = 1
+                          ellipsize = TextUtils.TruncateAt.END
+                      })
+                      item.addView(icon)
+                      item.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                      item.addView(label("▶", 22f, 0xFF16A34A.toInt()))
+                      item.setOnClickListener {
+                          urlBox.setText(s.url)
+                          play(s.url, s.name)
+                      }
+                      item.setOnLongClickListener { optionsDialog(i); true }
+                      savedList.addView(item, LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                      ).apply { setMargins(0, px(6), 0, 0) })
+                  }
+              }
+
+              private fun optionsDialog(index: Int) {
+                  AlertDialog.Builder(this)
+                      .setTitle(saved[index].name)
+                      .setItems(arrayOf("✏️ Editar", "🗑 Eliminar")) { _, which ->
+                          if (which == 0) editDialog(index)
+                          else {
+                              saved.removeAt(index)
+                              Store.save(this, saved)
+                              renderSaved()
+                          }
+                      }
+                      .show()
+              }
+
+              private fun editDialog(index: Int?, presetUrl: String = "") {
+                  val cur = index?.let { saved[it] }
+                  var chosen = cur?.icon ?: icons[0]
+
+                  val box = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(px(20), px(12), px(20), 0)
+                  }
+                  val nameBox = EditText(this).apply {
+                      hint = "Nombre (ej. Canal 1)"
+                      setText(cur?.name ?: "")
+                      setSingleLine()
+                  }
+                  val urlEdit = EditText(this).apply {
+                      hint = "URL del video"
+                      setText(cur?.url ?: presetUrl)
+                  }
+                  val iconRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                  val iconViews = mutableListOf<TextView>()
+                  fun refresh() {
+                      iconViews.forEach { v ->
+                          v.background = if (v.text.toString() == chosen) card(0xFFBFDBFE.toInt()) else null
+                      }
+                  }
+                  icons.forEach { ic ->
+                      val iv = TextView(this).apply {
+                          text = ic
+                          textSize = 26f
+                          setPadding(px(10), px(6), px(10), px(6))
+                          setOnClickListener { chosen = ic; refresh() }
+                      }
+                      iconViews.add(iv)
+                      iconRow.addView(iv)
+                  }
+                  refresh()
+                  box.addView(nameBox)
+                  box.addView(urlEdit)
+                  box.addView(label("Ícono:", 13f).apply { setPadding(0, px(10), 0, px(4)) })
+                  box.addView(HorizontalScrollView(this).apply { addView(iconRow) })
+
+                  AlertDialog.Builder(this)
+                      .setTitle(if (cur == null) "Guardar enlace" else "Editar enlace")
+                      .setView(box)
+                      .setPositiveButton("Guardar") { _, _ ->
+                          val u = urlEdit.text.toString().trim()
+                          if (u.isEmpty()) return@setPositiveButton toast("Falta la URL")
+                          var n = nameBox.text.toString().trim()
+                          if (n.isEmpty()) n = runCatching { java.net.URL(u).host }.getOrNull() ?: "Enlace"
+                          val entry = Saved(n, u, chosen)
+                          if (index == null) saved.add(entry) else saved[index] = entry
+                          Store.save(this, saved)
+                          renderSaved()
+                      }
+                      .setNegativeButton("Cancelar", null)
+                      .show()
+              }
+
+              private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+          }
+          EOF_FILE
+
+      - name: Aceptar licencias
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - run: gradle assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TvSender-Universal-v7
+          path: app/build/outputs/apk/debug/app-debug.apk
